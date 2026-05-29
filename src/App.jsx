@@ -441,17 +441,27 @@ export default function App() {
               Thank you <strong>{info.name}</strong>. Week ending <strong>{weekLabel()}</strong>.
             </div>
 
-            {/* Email status */}
-            <div style={{background:PALE,border:`1.5px solid ${BLUE}`,borderRadius:10,
-              padding:"13px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:12,textAlign:"left"}}>
-              <span style={{fontSize:22}}>📧</span>
+            {/* Email send status */}
+            <div style={{borderRadius:10,padding:"13px 16px",marginBottom:16,
+              display:"flex",alignItems:"center",gap:12,textAlign:"left",
+              background:  sendStatus==="sent"  ? "#e8faf0"
+                         : sendStatus==="error" ? "#fff5f5"
+                         : PALE,
+              border:`1.5px solid ${sendStatus==="sent"?GREEN:sendStatus==="error"?"#f5a0a0":BLUE}`}}>
+              <span style={{fontSize:24}}>
+                {sendStatus==="sent"?"✅":sendStatus==="error"?"❌":"⏳"}
+              </span>
               <div>
-                <div style={{fontWeight:700,fontSize:13,color:NAVY}}>
-                  {emailStatus==="opened"
-                    ? "Email app opened — tap Send to deliver to payroll"
-                    : "Your email app is opening…"}
+                <div style={{fontWeight:700,fontSize:13,
+                  color:sendStatus==="sent"?"#1a6b2a":sendStatus==="error"?"#c0392b":NAVY}}>
+                  {sendStatus==="sending" && "Sending timesheet PDF to payroll…"}
+                  {sendStatus==="sent"    && "PDF sent to payroll@neximehealthcare.co.uk ✅"}
+                  {sendStatus==="error"   && "Send failed — please tap Retry below"}
+                  {sendStatus==="idle"    && "Preparing…"}
                 </div>
-                <div style={{fontSize:11,color:GRAY,marginTop:2}}>To: payroll@neximehealthcare.co.uk</div>
+                <div style={{fontSize:11,color:GRAY,marginTop:2}}>
+                  {sendStatus==="sent" ? `Reference: ${refNo}` : "payroll@neximehealthcare.co.uk"}
+                </div>
               </div>
             </div>
 
