@@ -106,7 +106,8 @@ export default function App() {
   const [modal,  setModal]  = useState(null);
   const [errors, setErrors] = useState({});
   const [refNo]             = useState(()=>"NX-"+Math.random().toString(36).substring(2,8).toUpperCase());
-  const [emailStatus, setEmailStatus] = useState("idle");
+  const [sendStatus, setSendStatus] = useState("idle"); // idle | sending | sent | error
+
 
   const upd = (day,type,field,val) =>
     setRows(p=>({...p,[day]:{...p[day],[type]:{...p[day][type],[field]:val}}}));
@@ -125,54 +126,41 @@ export default function App() {
     setErrors(e); return !Object.keys(e).length;
   };
 
-  // ── Timesheet plain text (for email body) ──────────
-  const timesheetText = () => {
-    const line="=".repeat(48);
-    let b=`NEXIME HEALTHCARE – WEEKLY TIMESHEET\n${line}\n\n`;
-    b+=`Staff:        ${info.name}\n`;
-    b+=`Week Ending:  ${weekLabel()}\n`;
-    b+=`Reference:    ${refNo}\n`;
-    b+=`Total Hours:  ${fmt(grand)} hrs\n\n${"-".repeat(48)}\n\n`;
-    DAYS.forEach(day=>{
-      const r=rows[day];
-      const sh=calcHrs(r.sh.start,r.sh.end,r.sh.brk);
-      const sl=calcHrs(r.sl.start,r.sl.end,r.sl.brk);
-      if(!sh&&!sl) return;
-      b+=`${day}\n`;
-      if(sh){
-        b+=`  Shift:    ${r.sh.start} - ${r.sh.end} = ${sh} hrs`;
-        if(r.sh.brk>0) b+=` (${(r.sh.brk/60).toFixed(2)} hrs break)`;
-        if(r.sh.client) b+=` | ${r.sh.client}`;
-        if(r.sh.unit)   b+=` - ${r.sh.unit}`;
-        if(r.sh.auth)   b+=` | Auth: ${r.sh.auth}`;
-        if(r.sh.sig)    b+=` | SIGNED`;
-        b+="\n";
-      }
-      if(sl){
-        b+=`  Sleep In: ${r.sl.start} - ${r.sl.end} = ${sl} hrs`;
-        if(r.sl.brk>0) b+=` (${(r.sl.brk/60).toFixed(2)} hrs break)`;
-        if(r.sl.client) b+=` | ${r.sl.client}`;
-        if(r.sl.unit)   b+=` - ${r.sl.unit}`;
-        if(r.sl.sig)    b+=` | SIGNED`;
-        b+="\n";
-      }
-      b+=`  Day Total: ${fmt(toNum(sh)+toNum(sl))} hrs\n\n`;
-    });
-    b+=`${line}\nTOTAL HOURS: ${fmt(grand)} hrs\n${line}\n\nSubmitted via Nexime Healthcare Digital Timesheet Portal.`;
-    return b;
-  };
 
-  // ── Open email client pre-filled ───────────────────
-  const openEmail = () => {
-    const subject = `Timesheet Submission - ${info.name} - Week Ending ${weekLabel()}`;
-    window.location.href = `mailto:payroll@neximehealthcare.co.uk?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(timesheetText())}`;
-    setEmailStatus("opened");
-  };
-
-  // ── Submit handler ─────────────────────────────────
-  const handleSubmit = () => {
+  // ── Auto-send PDF via serverless function ──────────
+  const handleSubmit = async () => {
     setStep("done");
-    setTimeout(openEmail, 600);
+    setSendStatus("sending");
+    try {
+      const payload = {
+        staffName:  info.name,
+        weekEnding: weekLabel(),
+        reference:  refNo,
+        totalHours: fmt(grand),
+        days: DAYS.map(day => {
+          const r  = rows[day];
+          const sh = calcHrs(r.sh.start, r.sh.end, r.sh.brk);
+          const sl = calcHrs(r.sl.start, r.sl.end, r.sl.brk);
+          if (!sh && !sl) return null;
+          return {
+            day,
+            shift:   sh ? { ...r.sh, hours: sh } : null,
+            sleepIn: sl ? { ...r.sl, hours: sl } : null,
+            total:   fmt(toNum(sh) + toNum(sl)),
+          };
+        }).filter(Boolean),
+      };
+      const res = await fetch("/api/send-timesheet", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(payload),
+      });
+      if (res.ok) { setSendStatus("sent"); }
+      else        { setSendStatus("error"); }
+    } catch(e) {
+      console.error(e);
+      setSendStatus("error");
+    }
   };
 
   const HDRS = [
@@ -515,23 +503,25 @@ export default function App() {
               Reference: <strong>{refNo}</strong> · Nexime Healthcare Digital Timesheet
             </div>
 
-            {/* Action buttons */}
-            <div style={{display:"grid",gap:10,marginBottom:12}}>
-              <button onClick={openEmail}
-                style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,
-                  background:`linear-gradient(90deg,${GREEN},#0b9a60)`,
-                  color:WHITE,border:"none",borderRadius:10,padding:"14px 20px",
-                  fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                <span style={{fontSize:20}}>📧</span> Re-send Email to Payroll
-              </button>
-            </div>
+            {/* Retry button if failed */}
+            {sendStatus==="error" && (
+              <div style={{marginBottom:12}}>
+                <button onClick={handleSubmit}
+                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,
+                    background:`linear-gradient(90deg,${NAVY},${BLUE})`,
+                    color:WHITE,border:"none",borderRadius:10,padding:"14px 20px",
+                    width:"100%",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                  <span style={{fontSize:20}}>🔄</span> Retry Sending
+                </button>
+              </div>
+            )}
 
             <button className="ghost" style={{width:"100%"}} onClick={()=>{
               setStep("info");
               setInfo({name:"",week:""});
               setRows(Object.fromEntries(DAYS.map(d=>[d,{sh:blank(),sl:blank()}])));
               setErrors({});
-              setEmailStatus("idle");
+              setSendStatus("idle");
             }}>Start New Timesheet</button>
           </div>
         )}
