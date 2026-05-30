@@ -106,7 +106,8 @@ export default function App() {
   const [modal,  setModal]  = useState(null);
   const [errors, setErrors] = useState({});
   const [refNo]             = useState(()=>"NX-"+Math.random().toString(36).substring(2,8).toUpperCase());
-  const [sendStatus, setSendStatus] = useState("idle"); // idle | sending | sent | error
+  const [sendStatus,   setSendStatus]   = useState("idle"); // idle | sending | sent | error
+  const [downloading,  setDownloading]  = useState(false);
 
 
   const upd = (day,type,field,val) =>
@@ -126,6 +127,48 @@ export default function App() {
     setErrors(e); return !Object.keys(e).length;
   };
 
+
+  // ── Download PDF directly ─────────────────────────
+  const downloadPDF = async () => {
+    setDownloading(true);
+    try {
+      const payload = {
+        staffName:  info.name,
+        weekEnding: weekLabel(),
+        reference:  refNo,
+        totalHours: fmt(grand),
+        days: DAYS.map(day => {
+          const r  = rows[day];
+          const sh = calcHrs(r.sh.start, r.sh.end, r.sh.brk);
+          const sl = calcHrs(r.sl.start, r.sl.end, r.sl.brk);
+          if (!sh && !sl) return null;
+          return {
+            day,
+            shift:   sh ? { ...r.sh, hours: sh } : null,
+            sleepIn: sl ? { ...r.sl, hours: sl } : null,
+            total:   fmt(toNum(sh) + toNum(sl)),
+          };
+        }).filter(Boolean),
+      };
+      const res  = await fetch("/api/download-timesheet", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(payload),
+      });
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `Nexime_Timesheet_${info.name.replace(/\s+/g,"_")}_${weekLabel().replace(/\s+/g,"_")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch(e) {
+      console.error("Download error:", e);
+    }
+    setDownloading(false);
+  };
 
   // ── Auto-send PDF via serverless function ──────────
   const handleSubmit = async () => {
@@ -526,12 +569,24 @@ export default function App() {
               </div>
             )}
 
+            {/* Download PDF button */}
+            <button onClick={downloadPDF} disabled={downloading}
+              style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,
+                width:"100%",marginBottom:10,
+                background:downloading?`#ccc`:`linear-gradient(90deg,${NAVY},${BLUE})`,
+                color:WHITE,border:"none",borderRadius:10,padding:"14px 20px",
+                fontSize:15,fontWeight:700,cursor:downloading?"default":"pointer",fontFamily:"inherit"}}>
+              <span style={{fontSize:20}}>📄</span>
+              {downloading ? "Generating PDF…" : "Download My Timesheet PDF"}
+            </button>
+
             <button className="ghost" style={{width:"100%"}} onClick={()=>{
               setStep("info");
               setInfo({name:"",week:""});
               setRows(Object.fromEntries(DAYS.map(d=>[d,{sh:blank(),sl:blank()}])));
               setErrors({});
               setSendStatus("idle");
+              setDownloading(false);
             }}>Start New Timesheet</button>
           </div>
         )}

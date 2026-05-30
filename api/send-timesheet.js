@@ -117,13 +117,6 @@ async function generatePDF(data) {
       drawRow(shift,   'Shift',    true);
       drawRow(sleepIn, 'Sleep In', false);
 
-      // Day total row
-      doc.rect(40, y-2, W-80, 13).fill('#eaf6fd');
-      doc.fillColor('#7a8a9a').font('Helvetica').fontSize(7)
-         .text('Day Total:', cols[5]+2, y+2);
-      doc.fillColor('#0e8fd4').font('Helvetica-Bold').fontSize(8)
-         .text(`${dayData.total} hrs`, cols[6]+2, y+2);
-      y += 15;
       alt = !alt;
 
       // New page if running out of space
@@ -133,13 +126,7 @@ async function generatePDF(data) {
       }
     });
 
-    // ── Grand total bar ──
-    y += 6;
-    doc.rect(40, y, W-80, 22).fill('#1b3a5c');
-    doc.fillColor('white').font('Helvetica-Bold').fontSize(10)
-       .text('TOTAL HOURS FOR WEEK (Shift + Sleep In):', 50, y+6);
-    doc.fillColor('#3db84a').font('Helvetica-Bold').fontSize(13)
-       .text(`${data.totalHours} hrs`, W-90, y+5);
+    // Total already shown in header band — removed from bottom
 
     // ── Footer ──
     doc.rect(0, H-36, W, 36).fill('#1b3a5c');
@@ -199,7 +186,7 @@ export default async function handler(req, res) {
             </table>
           </div>
           <div style="padding:16px 28px;background:white;font-size:13px;color:#7a8a9a">
-            The full branded timesheet is attached as a PDF.
+            Timesheet is attached as a PDF.
           </div>
           <div style="background:#1b3a5c;padding:14px;text-align:center;border-radius:0 0 10px 10px">
             <p style="color:rgba(255,255,255,.5);font-size:10px;margin:0">
