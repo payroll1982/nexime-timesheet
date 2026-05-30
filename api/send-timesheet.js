@@ -41,7 +41,7 @@ async function generatePDF(data) {
 
     // ── Table — columns adjusted to fit signature inline ──
     // Cols: Day, Type, Date, Start, End, Break, Hours, Client, Auth, Signature
-    const cols  = [40, 82, 126, 170, 210, 250, 290, 330, 400, 455];
+    const cols  = [40, 78, 116, 180, 218, 256, 294, 332, 400, 452];
     const heads = ['Day','Type','Date','Start','End','Break','Hours','Client / Unit','Auth By','Signature'];
     const tTop  = 134;
     const ROW_H = 28; // taller rows to fit signature image inline
@@ -67,7 +67,7 @@ async function generatePDF(data) {
 
         // Day name
         doc.fillColor('#1b3a5c').font('Helvetica-Bold').fontSize(8)
-           .text(isShift ? day.slice(0,3) : (shift ? '' : day.slice(0,3)), cols[0]+2, mid);
+           .text(day.slice(0,3), cols[0]+2, mid);
 
         // Type label
         doc.fillColor(isShift ? '#1a6b2a' : '#094f80')
@@ -75,7 +75,7 @@ async function generatePDF(data) {
 
         // Date / times / break
         doc.fillColor('#1b3a5c').font('Helvetica').fontSize(8)
-           .text(rowData.date||'-',  cols[2]+2, mid)
+           .text((d=>{if(!d||d==='-')return '-';const p=d.split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d;})(rowData.date),  cols[2]+2, mid)
            .text(rowData.start||'-', cols[3]+2, mid)
            .text(rowData.end||'-',   cols[4]+2, mid)
            .text(rowData.brk > 0 ? `${(rowData.brk/60).toFixed(2)}` : '-', cols[5]+2, mid);
