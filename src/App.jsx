@@ -34,12 +34,18 @@ const fmt   = n => n.toFixed(2);
 
 // ── Logo ───────────────────────────────────────────────
 function Logo({ height=50, light=false }) {
+  // textLength on both lines forces them to render at identical width
+  // so HEALTHCARE always aligns perfectly under NEXIME
   return (
-    <svg height={height} viewBox="0 0 230 56" xmlns="http://www.w3.org/2000/svg" style={{display:"block"}}>
-      <text x="2" y="36" fontFamily="'Arial Black',Arial,sans-serif" fontWeight="900"
-        fontSize="32" fill={light?"#fff":BLUE} letterSpacing="3">NEXIME</text>
-      <text x="4" y="53" fontFamily="Arial,sans-serif" fontWeight="400"
-        fontSize="13" fill={light?"rgba(255,255,255,.68)":GRAY} letterSpacing="7.5">HEALTHCARE</text>
+    <svg height={height} viewBox="0 0 220 58" xmlns="http://www.w3.org/2000/svg" style={{display:"block"}}>
+      <text x="2" y="36"
+        fontFamily="'Arial Black',Arial,sans-serif" fontWeight="900" fontSize="32"
+        fill={light?"#fff":BLUE}
+        textLength="216" lengthAdjust="spacing">NEXIME</text>
+      <text x="2" y="54"
+        fontFamily="Arial,sans-serif" fontWeight="400" fontSize="13"
+        fill={light?"rgba(255,255,255,.68)":GRAY}
+        textLength="216" lengthAdjust="spacingAndGlyphs">HEALTHCARE</text>
     </svg>
   );
 }
