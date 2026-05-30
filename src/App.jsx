@@ -399,7 +399,29 @@ export default function App() {
                 <input type="date" className="f"
                   style={{borderColor:errors.week?"#e05252":undefined}}
                   value={info.week}
-                  onChange={e=>{setInfo(p=>({...p,week:e.target.value}));setErrors(p=>({...p,week:false}));}}/>
+                  onChange={e=>{
+                    const newWeek = e.target.value;
+                    setInfo(p=>({...p,week:newWeek}));
+                    setErrors(p=>({...p,week:false}));
+                    // Auto-generate Monday–Sunday dates from the week ending Sunday
+                    if(newWeek){
+                      const sunday = new Date(newWeek);
+                      setRows(p=>{
+                        const updated={...p};
+                        DAYS.forEach((day,i)=>{
+                          const d = new Date(sunday);
+                          d.setDate(sunday.getDate()-6+i); // Mon=sunday-6, Tue=sunday-5 ... Sun=sunday-0
+                          const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD for input
+                          updated[day]={
+                            ...updated[day],
+                            sh:{...updated[day].sh, date:dateStr},
+                            sl:{...updated[day].sl, date:dateStr},
+                          };
+                        });
+                        return updated;
+                      });
+                    }
+                  }}/>
                 {errors.week&&<div style={{fontSize:11,color:"#e05252",marginTop:3}}>⚠ Required</div>}
               </div>
             </div>
