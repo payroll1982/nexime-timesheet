@@ -366,7 +366,7 @@ export default function App() {
             {["info","shifts","done"].map((s,i)=>{
               const cur=["info","shifts","done"].indexOf(step);
               return <div key={s} style={{height:4,flex:1,borderRadius:2,
-                background:i<cur?"#3db84a":i===cur?"#fff":"rgba(255,255,255,.25)",transition:"background .3s"}}/>;
+                background:i<cur||(i===cur&&step==="done")?"#3db84a":i===cur?"#fff":"rgba(255,255,255,.25)",transition:"background .3s"}}/>;
             })}
           </div>
         </div>
