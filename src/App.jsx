@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { supabase } from "./supabase.js";
 
 // ── Colours ────────────────────────────────────────────
 const BLUE  = "#0e8fd4";
@@ -103,13 +104,49 @@ function SigPad({ label, onSave, onClose }) {
 }
 
 // ── Main App ───────────────────────────────────────────
-export default function App() {
+export default function App({ user, onLogout }) {
   const [step,   setStep]   = useState("info");
   const [info,   setInfo]   = useState({ name:"", week:"" });
   const [rows,   setRows]   = useState(() => Object.fromEntries(DAYS.map(d=>[d,{sh:blank(),sl:blank()}])));
   const [modal,  setModal]  = useState(null);
   const [errors, setErrors] = useState({});
   const [refNo]             = useState(()=>"NX-"+Math.random().toString(36).substring(2,8).toUpperCase());
+
+  // ── Auto-save: load draft from Supabase on login ────
+  const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved | error
+  useEffect(()=>{
+    if (!user) return;
+    const loadDraft = async () => {
+      try {
+        const { data } = await supabase.from("drafts")
+          .select("data").eq("staff_id", user.id).single();
+        if (data?.data) {
+          const d = data.data;
+          if (d.info) setInfo(d.info);
+          if (d.rows) setRows(d.rows);
+          if (d.step && d.step !== "done") setStep(d.step);
+        }
+      } catch(e){}
+    };
+    loadDraft();
+  },[user]);
+
+  // ── Auto-save: write to Supabase on every change ────
+  useEffect(()=>{
+    if (!user || step === "done") return;
+    setSaveStatus("saving");
+    const timer = setTimeout(async () => {
+      try {
+        await supabase.from("drafts").upsert({
+          staff_id: user.id,
+          data: { info, rows, step },
+          updated_at: new Date().toISOString()
+        }, { onConflict: "staff_id" });
+        setSaveStatus("saved");
+      } catch(e){ setSaveStatus("error"); }
+    }, 1500); // debounce — wait 1.5s after last change
+    return () => clearTimeout(timer);
+  },[info, rows, step, user]);
   const [sendStatus,   setSendStatus]   = useState("idle"); // idle | sending | sent | error
   const [downloading,  setDownloading]  = useState(false);
 
@@ -202,7 +239,27 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(payload),
       });
-      if (res.ok) { setSendStatus("sent"); }
+      if (res.ok) {
+        setSendStatus("sent");
+        try { localStorage.removeItem("nexime_draft"); } catch(e){}
+        // Save to Supabase database
+        try {
+          await supabase.from("timesheets").insert({
+            staff_id:   user?.id || null,
+            staff_name: info.name,
+            week_ending: weekLabel(),
+            total_hours: fmt(grand),
+            reference:  refNo,
+            status:     "submitted",
+            days: DAYS.map(day => {
+              const r  = rows[day];
+              const sh = calcHrs(r.sh.start,r.sh.end,r.sh.brk);
+              const sl = calcHrs(r.sl.start,r.sl.end,r.sl.brk);
+              return { day, shift: sh?{...r.sh,hours:sh}:null, sleepIn: sl?{...r.sl,hours:sl}:null };
+            }).filter(d=>d.shift||d.sleepIn)
+          });
+        } catch(e){ console.error("Supabase save error:",e); }
+      }
       else        { setSendStatus("error"); }
     } catch(e) {
       console.error(e);
@@ -358,7 +415,25 @@ export default function App() {
       <div style={{background:`linear-gradient(135deg,${NAVY},${BLUE})`,padding:"18px 20px 0"}}>
         <div style={{maxWidth:580,margin:"0 auto"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-            <Logo height={52} light/>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <Logo height={52} light/>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              {user && (
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:10,color:"rgba(255,255,255,.6)"}}>Logged in as</div>
+                  <div style={{fontSize:12,color:WHITE,fontWeight:700}}>{user.email}</div>
+                </div>
+              )}
+              {user && (
+                <button onClick={onLogout}
+                  style={{background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.3)",
+                    color:WHITE,borderRadius:8,padding:"6px 12px",fontSize:11,
+                    cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                  Sign Out
+                </button>
+              )}
+            </div>
             {step==="shifts"&&(
               <div style={{background:"rgba(255,255,255,.15)",borderRadius:12,padding:"8px 16px",textAlign:"center"}}>
                 <div style={{fontSize:10,color:"rgba(255,255,255,.7)",fontWeight:700,letterSpacing:".08em"}}>TOTAL HRS</div>
@@ -443,6 +518,28 @@ export default function App() {
         {/* ── STEP 2: Shifts ── */}
         {step==="shifts"&&(
           <div>
+            {/* Save status banner */}
+            <div style={{background: saveStatus==="saved"?"#e8faf0":saveStatus==="saving"?PALE:"#fff8e1",
+              border:`1px solid ${saveStatus==="saved"?GREEN:saveStatus==="saving"?BLUE:"#f5c842"}`,
+              borderRadius:8,padding:"7px 12px",marginBottom:10,
+              display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:11}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span>{saveStatus==="saved"?"💾":saveStatus==="saving"?"⏳":"⚠️"}</span>
+                <span style={{color:saveStatus==="saved"?"#1a6b2a":saveStatus==="saving"?NAVY:"#7a5800",fontWeight:600}}>
+                  {saveStatus==="saved" && "Progress saved to your account ✓"}
+                  {saveStatus==="saving" && "Saving your progress…"}
+                  {saveStatus==="idle"   && "Your progress will be saved automatically"}
+                  {saveStatus==="error"  && "Save failed — check your connection"}
+                </span>
+              </div>
+              <button onClick={onLogout}
+                style={{background:"transparent",border:`1px solid ${BORD}`,
+                  borderRadius:6,padding:"3px 10px",fontSize:11,cursor:"pointer",
+                  color:GRAY,fontFamily:"inherit"}}>
+                Sign Out
+              </button>
+            </div>
+
             {/* Staff bar */}
             <div style={{background:WHITE,borderRadius:12,border:`2px solid ${BORD}`,
               padding:"12px 16px",marginBottom:18,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -613,6 +710,7 @@ export default function App() {
               setErrors({});
               setSendStatus("idle");
               setDownloading(false);
+              try { await supabase.from("drafts").delete().eq("staff_id", user?.id); } catch(e){}
             }}>Start New Timesheet</button>
           </div>
         )}
