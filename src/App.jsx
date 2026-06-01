@@ -422,31 +422,42 @@ export default function App({ user, onLogout }) {
       `}</style>
 
       {/* HEADER */}
-      <div style={{background:`linear-gradient(135deg,${NAVY},${BLUE})`,padding:"18px 20px 0"}}>
+      <div style={{background:`linear-gradient(135deg,${NAVY},${BLUE})`,padding:"14px 16px 0"}}>
         <div style={{maxWidth:580,margin:"0 auto"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-            <Logo height={52} light/>
+
+          {/* Row 1: Logo + Sign Out */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+            <Logo height={46} light/>
             {user && (
-              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
-                <div style={{fontSize:10,color:"rgba(255,255,255,.6)"}}>
-                  👤 {user.user_metadata?.full_name || user.email}
-                </div>
-                <button onClick={onLogout}
-                  style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.35)",
-                    color:WHITE,borderRadius:20,padding:"4px 14px",fontSize:11,
-                    cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
-                  Sign Out
-                </button>
+              <button onClick={onLogout}
+                style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.35)",
+                  color:WHITE,borderRadius:20,padding:"5px 14px",fontSize:12,
+                  cursor:"pointer",fontFamily:"inherit",fontWeight:700,whiteSpace:"nowrap"}}>
+                Sign Out
+              </button>
+            )}
+          </div>
+
+          {/* Row 2: Name + Total HRS (on shifts page) */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+            {user && (
+              <div style={{fontSize:12,color:"rgba(255,255,255,.75)",fontWeight:600}}>
+                👤 {user.user_metadata?.full_name
+                  ? user.user_metadata.full_name
+                  : user.email?.split("@")[0].replace(/[._]/g," ").replace(/\w/g,c=>c.toUpperCase())}
               </div>
             )}
-            {step==="shifts"&&(
-              <div style={{background:"rgba(255,255,255,.15)",borderRadius:12,padding:"8px 16px",textAlign:"center"}}>
-                <div style={{fontSize:10,color:"rgba(255,255,255,.7)",fontWeight:700,letterSpacing:".08em"}}>TOTAL HRS</div>
-                <div style={{fontSize:26,color:WHITE,fontWeight:800,lineHeight:1}}>{fmt(grand)}</div>
+            {step==="shifts" && (
+              <div style={{background:"rgba(255,255,255,.15)",borderRadius:10,
+                padding:"4px 14px",textAlign:"center"}}>
+                <div style={{fontSize:9,color:"rgba(255,255,255,.7)",fontWeight:700,letterSpacing:".08em"}}>TOTAL HRS</div>
+                <div style={{fontSize:22,color:WHITE,fontWeight:800,lineHeight:1.2}}>{fmt(grand)}</div>
               </div>
             )}
           </div>
-          <div style={{display:"flex",gap:6,paddingBottom:16}}>
+
+          {/* Progress bars */}
+          <div style={{display:"flex",gap:6,paddingBottom:14}}>
             {["info","shifts","done"].map((s,i)=>{
               const cur=["info","shifts","done"].indexOf(step);
               return <div key={s} style={{height:4,flex:1,borderRadius:2,
