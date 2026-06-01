@@ -116,13 +116,17 @@ export default function App({ user, onLogout }) {
   const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved | error
   useEffect(()=>{
     if (!user) return;
+    // Auto-set name from account
+    const displayName = user.user_metadata?.full_name || user.email?.split("@")[0] || "";
+    setInfo(p => ({...p, name: displayName}));
+    // Load saved draft
     const loadDraft = async () => {
       try {
         const { data } = await supabase.from("drafts")
           .select("data").eq("staff_id", user.id).single();
         if (data?.data) {
           const d = data.data;
-          if (d.info) setInfo(d.info);
+          if (d.info) setInfo({...d.info, name: displayName}); // always use account name
           if (d.rows) setRows(d.rows);
           if (d.step && d.step !== "done") setStep(d.step);
         }
@@ -163,8 +167,7 @@ export default function App({ user, onLogout }) {
 
   const validate = () => {
     const e={};
-    if(!info.name.trim()) e.name=true;
-    if(!info.week)        e.week=true;
+    if(!info.week) e.week=true;
     setErrors(e); return !Object.keys(e).length;
   };
 
@@ -415,25 +418,22 @@ export default function App({ user, onLogout }) {
       <div style={{background:`linear-gradient(135deg,${NAVY},${BLUE})`,padding:"18px 20px 0"}}>
         <div style={{maxWidth:580,margin:"0 auto"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-            <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <Logo height={52} light/>
-            </div>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              {user && (
+            <Logo height={52} light/>
+            {user && (
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <div style={{textAlign:"right"}}>
                   <div style={{fontSize:10,color:"rgba(255,255,255,.6)"}}>Logged in as</div>
-                  <div style={{fontSize:12,color:WHITE,fontWeight:700}}>{user.email}</div>
+                  <div style={{fontSize:11,color:WHITE,fontWeight:700,maxWidth:140,
+                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>
                 </div>
-              )}
-              {user && (
                 <button onClick={onLogout}
                   style={{background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.3)",
-                    color:WHITE,borderRadius:8,padding:"6px 12px",fontSize:11,
-                    cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                    color:WHITE,borderRadius:8,padding:"6px 10px",fontSize:11,
+                    cursor:"pointer",fontFamily:"inherit",fontWeight:700,whiteSpace:"nowrap"}}>
                   Sign Out
                 </button>
-              )}
-            </div>
+              </div>
+            )}
             {step==="shifts"&&(
               <div style={{background:"rgba(255,255,255,.15)",borderRadius:12,padding:"8px 16px",textAlign:"center"}}>
                 <div style={{fontSize:10,color:"rgba(255,255,255,.7)",fontWeight:700,letterSpacing:".08em"}}>TOTAL HRS</div>
@@ -461,13 +461,13 @@ export default function App({ user, onLogout }) {
               <div style={{fontSize:13,color:GRAY}}>Enter your details to begin your weekly timesheet.</div>
             </div>
             <div style={{background:WHITE,borderRadius:14,border:`2px solid ${BORD}`,padding:"20px 18px",display:"grid",gap:16}}>
-              <div>
-                <div className="lbl">Staff Name</div>
-                <input className="f" placeholder="e.g. Sarah Johnson"
-                  style={{borderColor:errors.name?"#e05252":undefined}}
-                  value={info.name}
-                  onChange={e=>{setInfo(p=>({...p,name:e.target.value}));setErrors(p=>({...p,name:false}));}}/>
-                {errors.name&&<div style={{fontSize:11,color:"#e05252",marginTop:3}}>⚠ Required</div>}
+              <div style={{background:PALE,borderRadius:8,padding:"10px 14px",
+                display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:18}}>👤</span>
+                <div>
+                  <div style={{fontSize:10,color:BLUE,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em"}}>Logged in as</div>
+                  <div style={{fontSize:15,fontWeight:800,color:NAVY}}>{info.name}</div>
+                </div>
               </div>
               <div>
                 <div className="lbl">Week Ending Sunday Date</div>
@@ -532,12 +532,7 @@ export default function App({ user, onLogout }) {
                   {saveStatus==="error"  && "Save failed — check your connection"}
                 </span>
               </div>
-              <button onClick={onLogout}
-                style={{background:"transparent",border:`1px solid ${BORD}`,
-                  borderRadius:6,padding:"3px 10px",fontSize:11,cursor:"pointer",
-                  color:GRAY,fontFamily:"inherit"}}>
-                Sign Out
-              </button>
+
             </div>
 
             {/* Staff bar */}
@@ -703,7 +698,7 @@ export default function App({ user, onLogout }) {
               {downloading ? "Generating PDF…" : "Download My Timesheet PDF"}
             </button>
 
-            <button className="ghost" style={{width:"100%"}} onClick={async ()=>{
+            <button className="ghost" style={{width:"100%"}} onClick={()=>{
               setStep("info");
               setInfo({name:"",week:""});
               setRows(Object.fromEntries(DAYS.map(d=>[d,{sh:blank(),sl:blank()}])));
