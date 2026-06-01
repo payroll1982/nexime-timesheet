@@ -64,9 +64,9 @@ export default function Login({ onLogin }) {
     <div style={{ minHeight:"100vh", background:`linear-gradient(135deg,${NAVY},${BLUE})`,
       display:"flex", flexDirection:"column", alignItems:"center",
       justifyContent:"center", padding:"24px 16px",
-      fontFamily:"'Nunito','Segoe UI',sans-serif" }}>
+      fontFamily:"'Nunito','Segoe UI',sans-serif", overflowX:"hidden", width:"100%" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
-        *{box-sizing:border-box;margin:0;padding:0} input{font-family:inherit}
+        *{box-sizing:border-box;margin:0;padding:0} html,body{overflow-x:hidden;width:100%} input{font-family:inherit}
         .f{width:100%;padding:11px 14px;border:1.5px solid ${BORD};border-radius:9px;
            font-size:14px;color:${NAVY};outline:none;background:#fff;transition:border-color .2s}
         .f:focus{border-color:${BLUE}}`}</style>

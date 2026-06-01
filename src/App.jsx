@@ -403,10 +403,11 @@ export default function App({ user, onLogout }) {
   };
 
   return (
-    <div style={{minHeight:"100vh",background:"#f4faff",fontFamily:"'Nunito','Segoe UI',sans-serif",color:NAVY}}>
+    <div style={{minHeight:"100vh",background:"#f4faff",fontFamily:"'Nunito','Segoe UI',sans-serif",color:NAVY,overflowX:"hidden",width:"100%"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}
+        html,body{overflow-x:hidden;width:100%;max-width:100%}
         input,select{font-family:inherit}
         .f{width:100%;padding:9px 12px;border:1.5px solid ${BORD};border-radius:8px;font-size:14px;
            color:${NAVY};outline:none;background:#fff;transition:border-color .2s;
