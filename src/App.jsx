@@ -698,7 +698,7 @@ export default function App({ user, onLogout }) {
               {downloading ? "Generating PDF…" : "Download My Timesheet PDF"}
             </button>
 
-            <button className="ghost" style={{width:"100%"}} onClick={()=>{
+            <button className="ghost" style={{width:"100%"}} onClick={async ()=>{
               setStep("info");
               setInfo({name:"",week:""});
               setRows(Object.fromEntries(DAYS.map(d=>[d,{sh:blank(),sl:blank()}])));
