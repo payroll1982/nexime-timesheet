@@ -135,6 +135,13 @@ export default function App({ user, onLogout }) {
     loadDraft();
   },[user]);
 
+  // ── Clear draft immediately when submitted ──────────
+  useEffect(()=>{
+    if (step === "done" && user) {
+      supabase.from("drafts").delete().eq("staff_id", user.id).then(()=>{});
+    }
+  },[step]);
+
   // ── Auto-save: write to Supabase on every change ────
   useEffect(()=>{
     if (!user || step === "done") return;
@@ -420,16 +427,14 @@ export default function App({ user, onLogout }) {
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
             <Logo height={52} light/>
             {user && (
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:10,color:"rgba(255,255,255,.6)"}}>Logged in as</div>
-                  <div style={{fontSize:11,color:WHITE,fontWeight:700,maxWidth:140,
-                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                <div style={{fontSize:10,color:"rgba(255,255,255,.6)"}}>
+                  👤 {user.user_metadata?.full_name || user.email}
                 </div>
                 <button onClick={onLogout}
-                  style={{background:"rgba(255,255,255,.15)",border:"1px solid rgba(255,255,255,.3)",
-                    color:WHITE,borderRadius:8,padding:"6px 10px",fontSize:11,
-                    cursor:"pointer",fontFamily:"inherit",fontWeight:700,whiteSpace:"nowrap"}}>
+                  style={{background:"rgba(255,255,255,.18)",border:"1px solid rgba(255,255,255,.35)",
+                    color:WHITE,borderRadius:20,padding:"4px 14px",fontSize:11,
+                    cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
                   Sign Out
                 </button>
               </div>
