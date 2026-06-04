@@ -173,8 +173,22 @@ export default function App({ user, onLogout }) {
   const [downloading,  setDownloading]  = useState(false);
 
 
-  const upd = (day,type,field,val) =>
-    setRows(p=>({...p,[day]:{...p[day],[type]:{...p[day][type],[field]:val}}}));
+  const upd = (day,type,field,val,idx=0) => {
+    if (type==="sl") {
+      setRows(p=>({...p,[day]:{...p[day],sl:{...p[day].sl,[field]:val}}}));
+    } else {
+      setRows(p=>{
+        const cur = p[day].shifts || [blank()];
+        const newShifts = [...cur];
+        newShifts[idx] = {...(newShifts[idx]||blank()),[field]:val};
+        return {...p,[day]:{...p[day],shifts:newShifts}};
+      });
+    }
+  };
+  const addShift = (day) =>
+    setRows(p=>({...p,[day]:{...p[day],shifts:[...(p[day].shifts||[blank()]),blank()]}}));
+  const removeShift = (day,idx) =>
+    setRows(p=>({...p,[day]:{...p[day],shifts:(p[day].shifts||[]).filter((_,i)=>i!==idx)}}));
 
   const grand = DAYS.reduce((s,d)=>{
     const shiftsArr = rows[d].shifts || (rows[d].sh ? [rows[d].sh] : []);
@@ -625,8 +639,8 @@ export default function App({ user, onLogout }) {
                           const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD for input
                           updated[day]={
                             ...updated[day],
-                            sh:{...updated[day].sh, date:dateStr},
-                            sl:{...updated[day].sl, date:dateStr},
+                            shifts:(updated[day].shifts||[blank()]).map(sh=>({...sh,date:dateStr})),
+                            sl:{...(updated[day].sl||blank()), date:dateStr},
                           };
                         });
                         return updated;
