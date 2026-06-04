@@ -107,7 +107,7 @@ function SigPad({ label, onSave, onClose }) {
 export default function App({ user, onLogout }) {
   const [step,   setStep]   = useState("info");
   const [info,   setInfo]   = useState({ name:"", week:"" });
-  const [rows,   setRows]   = useState(() => Object.fromEntries(DAYS.map(d=>[d,{sh:blank(),sl:blank()}])));
+  const [rows,   setRows]   = useState(() => Object.fromEntries(DAYS.map(d=>[d,{shifts:[blank()],sl:blank()}])));
   const [modal,  setModal]  = useState(null);
   const [errors, setErrors] = useState({});
   const [refNo]             = useState(()=>"NX-"+Math.random().toString(36).substring(2,8).toUpperCase());
@@ -165,9 +165,11 @@ export default function App({ user, onLogout }) {
   const upd = (day,type,field,val) =>
     setRows(p=>({...p,[day]:{...p[day],[type]:{...p[day][type],[field]:val}}}));
 
-  const grand = DAYS.reduce((s,d)=>
-    s + toNum(calcHrs(rows[d].sh.start,rows[d].sh.end,rows[d].sh.brk))
-      + toNum(calcHrs(rows[d].sl.start,rows[d].sl.end,rows[d].sl.brk)), 0);
+  const grand = DAYS.reduce((s,d)=>{
+    const shiftTotal = rows[d].shifts.reduce((sum,sh)=>sum+toNum(calcHrs(sh.start,sh.end,sh.brk)),0);
+    const slTotal    = toNum(calcHrs(rows[d].sl.start,rows[d].sl.end,rows[d].sl.brk));
+    return s + shiftTotal + slTotal;
+  },0);
 
   const weekLabel = () => info.week
     ? new Date(info.week).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}) : "—";
@@ -189,15 +191,19 @@ export default function App({ user, onLogout }) {
         reference:  refNo,
         totalHours: fmt(grand),
         days: DAYS.map(day => {
-          const r  = rows[day];
-          const sh = calcHrs(r.sh.start, r.sh.end, r.sh.brk);
-          const sl = calcHrs(r.sl.start, r.sl.end, r.sl.brk);
-          if (!sh && !sl) return null;
+          const r = rows[day];
+          const shifts = r.shifts.map(sh=>{
+            const h = calcHrs(sh.start,sh.end,sh.brk);
+            return h ? {...sh, hours:h} : null;
+          }).filter(Boolean);
+          const slH = calcHrs(r.sl.start,r.sl.end,r.sl.brk);
+          if (!shifts.length && !slH) return null;
+          const shiftTotal = shifts.reduce((s,sh)=>s+toNum(sh.hours),0);
           return {
             day,
-            shift:   sh ? { ...r.sh, hours: sh } : null,
-            sleepIn: sl ? { ...r.sl, hours: sl } : null,
-            total:   fmt(toNum(sh) + toNum(sl)),
+            shifts,
+            sleepIn: slH ? {...r.sl, hours:slH} : null,
+            total:   fmt(shiftTotal + toNum(slH)),
           };
         }).filter(Boolean),
       };
@@ -232,15 +238,19 @@ export default function App({ user, onLogout }) {
         reference:  refNo,
         totalHours: fmt(grand),
         days: DAYS.map(day => {
-          const r  = rows[day];
-          const sh = calcHrs(r.sh.start, r.sh.end, r.sh.brk);
-          const sl = calcHrs(r.sl.start, r.sl.end, r.sl.brk);
-          if (!sh && !sl) return null;
+          const r = rows[day];
+          const shifts = r.shifts.map(sh=>{
+            const h = calcHrs(sh.start,sh.end,sh.brk);
+            return h ? {...sh, hours:h} : null;
+          }).filter(Boolean);
+          const slH = calcHrs(r.sl.start,r.sl.end,r.sl.brk);
+          if (!shifts.length && !slH) return null;
+          const shiftTotal = shifts.reduce((s,sh)=>s+toNum(sh.hours),0);
           return {
             day,
-            shift:   sh ? { ...r.sh, hours: sh } : null,
-            sleepIn: sl ? { ...r.sl, hours: sl } : null,
-            total:   fmt(toNum(sh) + toNum(sl)),
+            shifts,
+            sleepIn: slH ? {...r.sl, hours:slH} : null,
+            total:   fmt(shiftTotal + toNum(slH)),
           };
         }).filter(Boolean),
       };
@@ -286,6 +296,102 @@ export default function App({ user, onLogout }) {
     `linear-gradient(90deg,#0d6e1c,${GREEN})`,
     `linear-gradient(90deg,${GREEN},#0b9a88)`,
   ];
+
+  // ── Render a shift row (with index for multiple shifts) ─
+  const renderShift = (day, idx, d) => {
+    const rowHrs   = calcHrs(d.start, d.end, d.brk);
+    const needSign = d.start && d.end && !d.sig;
+    const canRemove = rows[day].shifts.length > 1;
+
+    return (
+      <div key={idx} style={{background:WHITE, borderTop:`2px solid ${BORD}`}}>
+        <div style={{padding:"10px 16px 8px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:".06em",
+            borderRadius:5,padding:"4px 12px",background:"#d0f0d8",color:"#1a6b2a"}}>
+            ⚡ {rows[day].shifts.length > 1 ? `Shift ${idx+1}` : "Shift"}
+          </span>
+          {canRemove && (
+            <button onClick={()=>removeShift(day,idx)}
+              style={{background:"#fff5f5",border:"1px solid #f5a0a0",borderRadius:6,
+                padding:"3px 10px",fontSize:11,color:"#c0392b",cursor:"pointer",fontFamily:"inherit"}}>
+              Remove
+            </button>
+          )}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,padding:"0 16px 10px"}}>
+          <div><div className="lbl">Date</div>
+            <input type="date" className="f" style={{fontSize:12,padding:"7px 6px"}}
+              value={d.date} onChange={e=>upd(day,"shift","date",e.target.value,idx)}/></div>
+          <div><div className="lbl">Start</div>
+            <input type="time" className="f" value={d.start} onChange={e=>upd(day,"shift","start",e.target.value,idx)}/></div>
+          <div><div className="lbl">End</div>
+            <input type="time" className="f" value={d.end} onChange={e=>upd(day,"shift","end",e.target.value,idx)}/></div>
+          <div><div className="lbl">Break</div>
+            <select className="f" style={{fontSize:12}} value={d.brk} onChange={e=>upd(day,"shift","brk",Number(e.target.value),idx)}>
+              {BREAKS.map(b=><option key={b.v} value={b.v}>{b.l}</option>)}
+            </select></div>
+        </div>
+        {rowHrs && (
+          <div style={{margin:"0 16px 12px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:12,
+              background:"#e8faf0",border:`2px solid ${GREEN}`,borderRadius:12,padding:"10px 16px"}}>
+              <span style={{fontSize:26}}>🕐</span>
+              <div>
+                <div style={{fontWeight:800,fontSize:20,color:"#1a6b2a",lineHeight:1.1}}>{rowHrs} hrs</div>
+                <div style={{fontSize:13,color:"#2e8b50",marginTop:2}}>
+                  Shift hours{d.brk>0?` · ${(d.brk/60).toFixed(2)} hrs break deducted`:""}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,padding:"0 16px 10px"}}>
+          <div><div className="lbl">Client</div>
+            <select className="f" value={d.client} onChange={e=>upd(day,"shift","client",e.target.value,idx)}
+              style={{color:d.client?NAVY:GRAY}}>
+              {CLIENTS.map(c=><option key={c} value={c}>{c||"Select client…"}</option>)}
+            </select></div>
+          <div><div className="lbl">Unit</div>
+            <input className="f" value={d.unit}
+              placeholder={d.client?`Unit at ${d.client}`:"Select client first"}
+              disabled={!d.client}
+              onChange={e=>upd(day,"shift","unit",e.target.value,idx)}
+              style={{background:d.client?WHITE:"#f0f0f0",color:d.client?NAVY:GRAY}}/></div>
+        </div>
+        {d.client==="Turner Home" && (
+          <div style={{padding:"0 16px 8px"}}>
+            <input className="f" placeholder="Authorising Name" style={{fontSize:13}}
+              value={d.auth} onChange={e=>upd(day,"shift","auth",e.target.value,idx)}/>
+          </div>
+        )}
+        <div style={{padding:"0 16px 16px"}}>
+          {d.client==="Turner Home" ? (
+            d.sig
+              ? <div style={{display:"inline-flex",alignItems:"center",gap:6,background:"#e8faf0",
+                  border:`2px solid ${GREEN}`,borderRadius:20,padding:"7px 16px",
+                  fontSize:13,fontWeight:700,color:"#1a6b2a"}}>✅ Signed</div>
+              : <div onClick={()=>d.start&&d.end&&setModal({day,type:"shift",idx,
+                  label:`${day} Shift${rows[day].shifts.length>1?" "+(idx+1):""} · ${d.start}–${d.end}`})}
+                  style={{display:"inline-flex",alignItems:"center",gap:6,
+                    background:needSign?"#fff5f5":d.start&&d.end?PALE:"#f5f5f5",
+                    border:`2px solid ${needSign?"#f5a0a0":d.start&&d.end?BLUE:"#ddd"}`,
+                    borderRadius:20,padding:"7px 16px",fontSize:13,fontWeight:700,
+                    color:needSign?"#c0392b":d.start&&d.end?NAVY:GRAY,
+                    cursor:d.start&&d.end?"pointer":"default",
+                    animation:needSign?"pulse 2s infinite":"none"}}>
+                  ✍ {d.start&&d.end?"Sign Now":"Enter times first"}
+                </div>
+          ) : (d.client==="AFG"||d.client==="Gloucester Road") ? (
+            <div style={{display:"inline-flex",alignItems:"center",gap:6,
+              background:"#f0f8ff",border:`1.5px solid ${BORD}`,
+              borderRadius:20,padding:"7px 14px",fontSize:12,color:GRAY}}>
+              ℹ️ No signature required for {d.client}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
 
   // ── Render a shift or sleep-in row ─────────────────
   const renderRow = (day, type) => {
@@ -567,9 +673,9 @@ export default function App({ user, onLogout }) {
 
             {DAYS.map((day,di)=>{
               const r  = rows[day];
-              const sh = calcHrs(r.sh.start,r.sh.end,r.sh.brk);
+              const shiftTotal = r.shifts.reduce((s,sh)=>s+toNum(calcHrs(sh.start,sh.end,sh.brk)),0);
               const sl = calcHrs(r.sl.start,r.sl.end,r.sl.brk);
-              const tot = toNum(sh)+toNum(sl);
+              const tot = shiftTotal+toNum(sl);
               return (
                 <div key={day} style={{background:WHITE,borderRadius:14,border:`2px solid ${BORD}`,
                   marginBottom:14,overflow:"hidden",boxShadow:"0 2px 12px #0e8fd414"}}>
@@ -582,7 +688,16 @@ export default function App({ user, onLogout }) {
                       {fmt(tot)} hrs total
                     </div>}
                   </div>
-                  {renderRow(day,"sh")}
+                  {/* Render all shifts with Add/Remove buttons */}
+                  {r.shifts.map((sh, idx) => renderShift(day, idx, sh))}
+                  <div style={{padding:"8px 16px",borderTop:`1px solid ${BORD}`}}>
+                    <button onClick={()=>addShift(day)}
+                      style={{background:PALE,border:`1.5px dashed ${BLUE}`,borderRadius:8,
+                        padding:"8px 16px",fontSize:12,color:BLUE,fontWeight:700,
+                        cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
+                      + Add Another Shift
+                    </button>
+                  </div>
                   {renderRow(day,"sl")}
                 </div>
               );
@@ -671,11 +786,15 @@ export default function App({ user, onLogout }) {
                       <div style={{fontWeight:800,fontSize:13}}>{day.slice(0,3)}</div>
                       <div style={{fontWeight:700,color:BLUE}}>{fmt(toNum(sh)+toNum(sl))} hrs</div>
                     </div>
-                    {sh&&<div style={{color:GRAY}}>⚡ Shift: {r.sh.start}–{r.sh.end} = <strong>{sh}</strong>
-                      {r.sh.brk>0&&` (${(r.sh.brk/60).toFixed(2)} hrs break)`}
-                      {r.sh.client&&<span style={{color:BLUE}}> · {r.sh.client}</span>}
-                      {r.sh.sig&&" ✅"}
-                    </div>}
+                    {r.shifts.map((sh,idx)=>{
+                      const h=calcHrs(sh.start,sh.end,sh.brk);
+                      return h ? <div key={idx} style={{color:GRAY}}>
+                        ⚡ Shift {r.shifts.length>1?idx+1:""}: {sh.start}–{sh.end} = <strong>{h}</strong>
+                        {sh.brk>0&&` (${(sh.brk/60).toFixed(2)} hrs break)`}
+                        {sh.client&&<span style={{color:BLUE}}> · {sh.client}</span>}
+                        {sh.sig&&" ✅"}
+                      </div> : null;
+                    })}
                     {sl&&<div style={{color:GRAY,marginTop:1}}>🌙 Sleep In: {r.sl.start}–{r.sl.end} = <strong>{sl}</strong>
                       {r.sl.brk>0&&` (${(r.sl.brk/60).toFixed(2)} hrs break)`}
                       {r.sl.client&&<span style={{color:BLUE}}> · {r.sl.client}</span>}
@@ -718,7 +837,7 @@ export default function App({ user, onLogout }) {
             <button className="ghost" style={{width:"100%"}} onClick={async ()=>{
               setStep("info");
               setInfo({name:"",week:""});
-              setRows(Object.fromEntries(DAYS.map(d=>[d,{sh:blank(),sl:blank()}])));
+              setRows(Object.fromEntries(DAYS.map(d=>[d,{shifts:[blank()],sl:blank()}])));
               setErrors({});
               setSendStatus("idle");
               setDownloading(false);
@@ -743,7 +862,11 @@ export default function App({ user, onLogout }) {
 
       {modal&&(
         <SigPad label={modal.label}
-          onSave={url=>{upd(modal.day,modal.type,"sig",url);setModal(null);}}
+          onSave={url=>{
+            if(modal.type==="shift") upd(modal.day,"shift","sig",url,modal.idx||0);
+            else upd(modal.day,modal.type,"sig",url);
+            setModal(null);
+          }}
           onClose={()=>setModal(null)}/>
       )}
     </div>
