@@ -186,7 +186,11 @@ export default function App({ user, onLogout }) {
     }
   };
   const addShift = (day) =>
-    setRows(p=>({...p,[day]:{...p[day],shifts:[...(p[day].shifts||[blank()]),blank()]}}));
+    setRows(p=>{
+      const existing = p[day].shifts||[blank()];
+      const date = existing[0]?.date || ""; // copy date from first shift
+      return {...p,[day]:{...p[day],shifts:[...existing,{...blank(),date}]}};
+    });
   const removeShift = (day,idx) =>
     setRows(p=>({...p,[day]:{...p[day],shifts:(p[day].shifts||[]).filter((_,i)=>i!==idx)}}));
 
@@ -239,7 +243,7 @@ export default function App({ user, onLogout }) {
         totalHours: fmt(grand),
         days: DAYS.map(day => {
           const r = rows[day];
-          const shifts = r.shifts.map(sh=>{
+          const shifts = (r.shifts||[]).map(sh=>{
             const h = calcHrs(sh.start,sh.end,sh.brk);
             return h ? {...sh, hours:h} : null;
           }).filter(Boolean);
@@ -286,7 +290,7 @@ export default function App({ user, onLogout }) {
         totalHours: fmt(grand),
         days: DAYS.map(day => {
           const r = rows[day];
-          const shifts = r.shifts.map(sh=>{
+          const shifts = (r.shifts||[]).map(sh=>{
             const h = calcHrs(sh.start,sh.end,sh.brk);
             return h ? {...sh, hours:h} : null;
           }).filter(Boolean);
@@ -348,14 +352,14 @@ export default function App({ user, onLogout }) {
   const renderShift = (day, idx, d) => {
     const rowHrs   = calcHrs(d.start, d.end, d.brk);
     const needSign = d.start && d.end && !d.sig;
-    const canRemove = rows[day].shifts.length > 1;
+    const canRemove = (rows[day].shifts||[]).length > 1;
 
     return (
       <div key={idx} style={{background:WHITE, borderTop:`2px solid ${BORD}`}}>
         <div style={{padding:"10px 16px 8px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <span style={{fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:".06em",
             borderRadius:5,padding:"4px 12px",background:"#d0f0d8",color:"#1a6b2a"}}>
-            ⚡ {rows[day].shifts.length > 1 ? `Shift ${idx+1}` : "Shift"}
+            ⚡ {(rows[day].shifts||[]).length > 1 ? `Shift ${idx+1}` : "Shift"}
           </span>
           {canRemove && (
             <button onClick={()=>removeShift(day,idx)}
@@ -418,7 +422,7 @@ export default function App({ user, onLogout }) {
                   border:`2px solid ${GREEN}`,borderRadius:20,padding:"7px 16px",
                   fontSize:13,fontWeight:700,color:"#1a6b2a"}}>✅ Signed</div>
               : <div onClick={()=>d.start&&d.end&&setModal({day,type:"shift",idx,
-                  label:`${day} Shift${rows[day].shifts.length>1?" "+(idx+1):""} · ${d.start}–${d.end}`})}
+                  label:`${day} Shift${(rows[day].shifts||[]).length>1?" "+(idx+1):""} · ${d.start}–${d.end}`})}
                   style={{display:"inline-flex",alignItems:"center",gap:6,
                     background:needSign?"#fff5f5":d.start&&d.end?PALE:"#f5f5f5",
                     border:`2px solid ${needSign?"#f5a0a0":d.start&&d.end?BLUE:"#ddd"}`,
@@ -815,10 +819,10 @@ export default function App({ user, onLogout }) {
                       <div style={{fontWeight:800,fontSize:13}}>{day.slice(0,3)}</div>
                       <div style={{fontWeight:700,color:BLUE}}>{fmt(toNum(sh)+toNum(sl))} hrs</div>
                     </div>
-                    {r.shifts.map((sh,idx)=>{
+                    {(r.shifts||[]).map((sh,idx)=>{
                       const h=calcHrs(sh.start,sh.end,sh.brk);
                       return h ? <div key={idx} style={{color:GRAY}}>
-                        ⚡ Shift {r.shifts.length>1?idx+1:""}: {sh.start}–{sh.end} = <strong>{h}</strong>
+                        ⚡ Shift {(r.shifts||[]).length>1?idx+1:""}: {sh.start}–{sh.end} = <strong>{h}</strong>
                         {sh.brk>0&&` (${(sh.brk/60).toFixed(2)} hrs break)`}
                         {sh.client&&<span style={{color:BLUE}}> · {sh.client}</span>}
                         {sh.sig&&" ✅"}
