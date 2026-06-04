@@ -48,7 +48,7 @@ async function generatePDF(data) {
     let alt = false;
 
     data.days.forEach(dayData => {
-      const { day, shift, sleepIn } = dayData;
+      const { day, shifts, sleepIn } = dayData;
 
       const drawRow = (rowData, label, isShift) => {
         if (!rowData) return;
@@ -90,7 +90,8 @@ async function generatePDF(data) {
         y += ROW_H;
       };
 
-      drawRow(shift,   'Shift',    true);
+      if(shifts&&shifts.length) shifts.forEach(sh=>drawRow(sh,'Shift',true));
+      else drawRow(null,'Shift',true);
       drawRow(sleepIn, 'Sleep In', false);
       alt = !alt;
 
