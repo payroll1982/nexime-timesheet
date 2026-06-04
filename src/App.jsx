@@ -198,6 +198,26 @@ export default function App({ user, onLogout }) {
     return s + shiftTotal + slTotal;
   },0);
 
+  // ── Auto-fill dates when week ending changes ─────────
+  useEffect(()=>{
+    if (!info.week) return;
+    const sunday = new Date(info.week);
+    setRows(p=>{
+      const next = {...p};
+      DAYS.forEach((day,i)=>{
+        const d = new Date(sunday);
+        d.setDate(sunday.getDate()-6+i);
+        const dateStr = d.toISOString().split('T')[0];
+        next[day] = {
+          ...p[day],
+          shifts: (p[day].shifts||[blank()]).map(sh=>({...sh, date:dateStr})),
+          sl: {...(p[day].sl||blank()), date:dateStr},
+        };
+      });
+      return next;
+    });
+  },[info.week]);
+
   const weekLabel = () => info.week
     ? new Date(info.week).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}) : "—";
 
@@ -628,24 +648,6 @@ export default function App({ user, onLogout }) {
                     const newWeek = e.target.value;
                     setInfo(p=>({...p,week:newWeek}));
                     setErrors(p=>({...p,week:false}));
-                    // Auto-generate Monday–Sunday dates from the week ending Sunday
-                    if(newWeek){
-                      const sunday = new Date(newWeek);
-                      setRows(p=>{
-                        const updated={...p};
-                        DAYS.forEach((day,i)=>{
-                          const d = new Date(sunday);
-                          d.setDate(sunday.getDate()-6+i); // Mon=sunday-6, Tue=sunday-5 ... Sun=sunday-0
-                          const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD for input
-                          updated[day]={
-                            ...updated[day],
-                            shifts:(updated[day].shifts||[blank()]).map(sh=>({...sh,date:dateStr})),
-                            sl:{...(updated[day].sl||blank()), date:dateStr},
-                          };
-                        });
-                        return updated;
-                      });
-                    }
                   }}/>
                 {errors.week&&<div style={{fontSize:11,color:"#e05252",marginTop:3}}>⚠ Required</div>}
               </div>
