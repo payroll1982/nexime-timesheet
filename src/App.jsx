@@ -323,11 +323,14 @@ export default function App({ user, onLogout }) {
             reference:  refNo,
             status:     "submitted",
             days: DAYS.map(day => {
-              const r  = rows[day];
-              const sh = calcHrs(r.sh.start,r.sh.end,r.sh.brk);
-              const sl = calcHrs(r.sl.start,r.sl.end,r.sl.brk);
-              return { day, shift: sh?{...r.sh,hours:sh}:null, sleepIn: sl?{...r.sl,hours:sl}:null };
-            }).filter(d=>d.shift||d.sleepIn)
+              const r = rows[day];
+              const shifts = (r.shifts||[]).map(sh=>{
+                const h=calcHrs(sh.start,sh.end,sh.brk);
+                return h?{...sh,hours:h}:null;
+              }).filter(Boolean);
+              const slH = calcHrs(r.sl?.start,r.sl?.end,r.sl?.brk);
+              return { day, shifts, sleepIn: slH?{...r.sl,hours:slH}:null };
+            }).filter(d=>d.shifts?.length||d.sleepIn)
           });
         } catch(e){ console.error("Supabase save error:",e); }
       }
@@ -810,14 +813,15 @@ export default function App({ user, onLogout }) {
               </div>
               {DAYS.map(day=>{
                 const r=rows[day];
-                const sh=calcHrs(r.sh.start,r.sh.end,r.sh.brk);
-                const sl=calcHrs(r.sl.start,r.sl.end,r.sl.brk);
-                if(!sh&&!sl) return null;
+                const shiftsArr=(r.shifts||[]);
+                const shiftTotal=shiftsArr.reduce((s,sh)=>s+toNum(calcHrs(sh.start,sh.end,sh.brk)),0);
+                const sl=calcHrs(r.sl?.start,r.sl?.end,r.sl?.brk);
+                if(!shiftTotal&&!sl) return null;
                 return (
                   <div key={day} style={{padding:"7px 0",borderBottom:`1px solid ${PALE}`,fontSize:12}}>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
                       <div style={{fontWeight:800,fontSize:13}}>{day.slice(0,3)}</div>
-                      <div style={{fontWeight:700,color:BLUE}}>{fmt(toNum(sh)+toNum(sl))} hrs</div>
+                      <div style={{fontWeight:700,color:BLUE}}>{fmt(shiftTotal+toNum(sl))} hrs</div>
                     </div>
                     {(r.shifts||[]).map((sh,idx)=>{
                       const h=calcHrs(sh.start,sh.end,sh.brk);
