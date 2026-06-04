@@ -126,7 +126,18 @@ export default function App({ user, onLogout }) {
           .select("data").eq("staff_id", user.id).single();
         if (data?.data) {
           const d = data.data;
-          if (d.info) setInfo({...d.info, name: displayName}); // always use account name
+          // Migrate old format {sh:{}} to new {shifts:[{}]}
+          if (d.rows) {
+            DAYS.forEach(day => {
+              if (d.rows[day]) {
+                if (!d.rows[day].shifts) {
+                  d.rows[day].shifts = d.rows[day].sh ? [d.rows[day].sh] : [blank()];
+                }
+                if (!d.rows[day].sl) d.rows[day].sl = blank();
+              }
+            });
+          }
+          if (d.info) setInfo({...d.info, name: displayName});
           if (d.rows) setRows(d.rows);
           if (d.step && d.step !== "done") setStep(d.step);
         }
@@ -166,8 +177,10 @@ export default function App({ user, onLogout }) {
     setRows(p=>({...p,[day]:{...p[day],[type]:{...p[day][type],[field]:val}}}));
 
   const grand = DAYS.reduce((s,d)=>{
-    const shiftTotal = rows[d].shifts.reduce((sum,sh)=>sum+toNum(calcHrs(sh.start,sh.end,sh.brk)),0);
-    const slTotal    = toNum(calcHrs(rows[d].sl.start,rows[d].sl.end,rows[d].sl.brk));
+    const shiftsArr = rows[d].shifts || (rows[d].sh ? [rows[d].sh] : []);
+    const shiftTotal = shiftsArr.reduce((sum,sh)=>sum+toNum(calcHrs(sh.start,sh.end,sh.brk)),0);
+    const sl = rows[d].sl || {};
+    const slTotal = toNum(calcHrs(sl.start,sl.end,sl.brk));
     return s + shiftTotal + slTotal;
   },0);
 
@@ -673,7 +686,7 @@ export default function App({ user, onLogout }) {
 
             {DAYS.map((day,di)=>{
               const r  = rows[day];
-              const shiftTotal = r.shifts.reduce((s,sh)=>s+toNum(calcHrs(sh.start,sh.end,sh.brk)),0);
+              const shiftTotal = (r.shifts||[]).reduce((s,sh)=>s+toNum(calcHrs(sh.start,sh.end,sh.brk)),0);
               const sl = calcHrs(r.sl.start,r.sl.end,r.sl.brk);
               const tot = shiftTotal+toNum(sl);
               return (
@@ -689,7 +702,7 @@ export default function App({ user, onLogout }) {
                     </div>}
                   </div>
                   {/* Render all shifts with Add/Remove buttons */}
-                  {r.shifts.map((sh, idx) => renderShift(day, idx, sh))}
+                  {(r.shifts||[blank()]).map((sh, idx) => renderShift(day, idx, sh))}
                   <div style={{padding:"8px 16px",borderTop:`1px solid ${BORD}`}}>
                     <button onClick={()=>addShift(day)}
                       style={{background:PALE,border:`1.5px dashed ${BLUE}`,borderRadius:8,
