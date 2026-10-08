@@ -12,7 +12,7 @@ const WHITE = "#ffffff";
 
 // ── Constants ──────────────────────────────────────────
 const DAYS    = ["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY"];
-const CLIENTS = ["","Turner Home","AFG","Gloucester Road"];
+const CLIENTS = ["","Turner Home","Autism Initiatives","AFG","Gloucester Road"];
 const BREAKS  = [
   {l:"No break",v:0},{l:"0.25 hrs",v:15},
   {l:"0.50 hrs",v:30},{l:"0.75 hrs",v:45},{l:"1.00 hrs",v:60},
@@ -412,14 +412,14 @@ export default function App({ user, onLogout }) {
               onChange={e=>upd(day,"shift","unit",e.target.value,idx)}
               style={{background:d.client?WHITE:"#f0f0f0",color:d.client?NAVY:GRAY}}/></div>
         </div>
-        {d.client==="Turner Home" && (
+        {(d.client==="Turner Home"||d.client==="Autism Initiatives") && (
           <div style={{padding:"0 16px 8px"}}>
             <input className="f" placeholder="Authorising Name" style={{fontSize:13}}
               value={d.auth} onChange={e=>upd(day,"shift","auth",e.target.value,idx)}/>
           </div>
         )}
         <div style={{padding:"0 16px 16px"}}>
-          {d.client==="Turner Home" ? (
+          {(d.client==="Turner Home"||d.client==="Autism Initiatives") ? (
             d.sig
               ? <div style={{display:"inline-flex",alignItems:"center",gap:6,background:"#e8faf0",
                   border:`2px solid ${GREEN}`,borderRadius:20,padding:"7px 16px",
@@ -526,8 +526,8 @@ export default function App({ user, onLogout }) {
           </div>
         </div>
 
-        {/* Auth + Sign — Turner Home only */}
-        {d.client==="Turner Home" && (
+        {/* Auth + Sign — Turner Home & Autism Initiatives */}
+        {(d.client==="Turner Home"||d.client==="Autism Initiatives") && (
           <div style={{padding:"0 16px 8px"}}>
             <input className="f" placeholder="Authorising Name" style={{fontSize:13}}
               value={d.auth} onChange={e=>upd(day,type,"auth",e.target.value)}/>
@@ -535,7 +535,7 @@ export default function App({ user, onLogout }) {
         )}
 
         <div style={{padding:"0 16px 16px"}}>
-          {d.client==="Turner Home" ? (
+          {(d.client==="Turner Home"||d.client==="Autism Initiatives") ? (
             d.sig
               ? <div style={{display:"inline-flex",alignItems:"center",gap:6,background:"#e8faf0",
                   border:`2px solid ${GREEN}`,borderRadius:20,padding:"7px 16px",
