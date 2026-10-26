@@ -11,7 +11,7 @@ const WHITE = "#ffffff";
 const RED   = "#e74c3c";
 
 const ADMIN_PIN = "nexime2024";
-const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const DAYS = ["MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY","SUNDAY"];
 
 // Known clients — always shown in dropdown
 const KNOWN_CLIENTS = ["Turner Home", "Autism Initiatives", "AFG", "Gloucester Road"];
@@ -39,10 +39,17 @@ const transformDraft = (draft) => {
   const info = d.info || {};
   const rows = d.rows || {};
 
+  // Match day keys regardless of capitalisation (app stores "MONDAY")
+  const rowFor = day => {
+    const key = Object.keys(rows).find(k => k.toUpperCase() === day);
+    return key ? rows[key] : null;
+  };
+
   const days = DAYS.map(day => {
-    const row = rows[day];
+    const row = rowFor(day);
     if (!row) return null;
-    const shifts = (row.shifts || []).map(sh => {
+    const legacy = !row.shifts && row.sh ? [row.sh] : null;
+    const shifts = (row.shifts || legacy || []).map(sh => {
       const h = calcH(sh.start, sh.end, sh.brk);
       return h > 0 ? { ...sh, hours: h.toFixed(2) } : null;
     }).filter(Boolean);
@@ -170,6 +177,7 @@ function AdminDashboard({ onExit }) {
   const [filterClient, setFilterClient] = useState("");
   const [filterWeek,   setFilterWeek]   = useState("");
   const [expanded,     setExpanded]     = useState(null);
+  const [view,         setView]         = useState("shifts"); // "shifts" | "staff"
 
   useEffect(() => { load(); }, []);
 
@@ -234,6 +242,43 @@ function AdminDashboard({ onExit }) {
     return nameMatch && weekMatch && clientMatch;
   });
 
+  // ── Flat list: one row per shift / sleep-in ──────────
+  const allShifts = filtered.flatMap(r =>
+    (r.days||[]).flatMap(d => [
+      ...(d.shifts||[]).map(sh => ({ ...sh, type:"Shift" })),
+      ...(d.sleepIn ? [{ ...d.sleepIn, type:"Sleep-in" }] : []),
+    ].map(sh => ({
+      ...sh,
+      day: d.day,
+      staff_name: r.staff_name,
+      week_ending: r.week_ending,
+    })))
+  ).filter(sh => !filterClient || sh.client === filterClient)
+   .sort((a,b) =>
+      (a.date||"").localeCompare(b.date||"") ||
+      (a.start||"").localeCompare(b.start||"") ||
+      (a.staff_name||"").localeCompare(b.staff_name||""));
+
+  const shiftHoursTotal = allShifts.reduce((s,sh)=>s+(parseFloat(sh.hours)||0),0);
+  const niceDate = d => d
+    ? new Date(d).toLocaleDateString("en-GB",{weekday:"short",day:"2-digit",month:"short",year:"numeric"})
+    : "—";
+
+  const exportShiftsCSV = () => {
+    const headers = ["Date","Day","Staff Name","Type","Start","End","Break (mins)","Client","Unit","Hours","Week Ending"];
+    const rows = allShifts.map(sh => [
+      sh.date||"", sh.day||"", sh.staff_name||"", sh.type, sh.start||"", sh.end||"",
+      sh.brk||0, sh.client||"", sh.unit||"", sh.hours||"", sh.week_ending||"",
+    ]);
+    rows.push(["","","","","","","","","TOTAL",shiftHoursTotal.toFixed(2),""]);
+    const csv = [headers,...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv],{type:"text/csv"});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href=url; a.download=`Nexime-Shifts${filterClient?"-"+filterClient.replace(/\s+/g,"-"):""}-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  };
+
   const doSearch = () => setSearch(searchInput);
 
   const clearAll = () => {
@@ -247,10 +292,15 @@ function AdminDashboard({ onExit }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name:      rec.staff_name,
-          week:      rec.week_ending,
-          reference: rec.reference,
-          rows:      buildRows(rec.days),
+          staffName:  rec.staff_name,
+          weekEnding: rec.week_ending,
+          reference:  rec.reference && rec.reference !== "—" ? rec.reference : "",
+          totalHours: rec.total_hours,
+          days: (rec.days||[]).map(d => {
+            const shiftTotal = (d.shifts||[]).reduce((s,sh)=>s+(parseFloat(sh.hours)||0),0);
+            const slTotal = d.sleepIn ? (parseFloat(d.sleepIn.hours)||0) : 0;
+            return { ...d, total: (shiftTotal + slTotal).toFixed(2) };
+          }),
         }),
       });
       if (!res.ok) throw new Error("Download failed");
@@ -411,7 +461,7 @@ function AdminDashboard({ onExit }) {
             </button>
 
             {/* CSV */}
-            <button onClick={exportCSV}
+            <button onClick={view==="shifts"?exportShiftsCSV:exportCSV}
               style={{ padding:"9px 14px", background:GREEN, border:"none",
                 borderRadius:8, fontSize:12, fontWeight:700, color:WHITE,
                 cursor:"pointer", whiteSpace:"nowrap" }}>
@@ -435,8 +485,79 @@ function AdminDashboard({ onExit }) {
           </div>
         )}
 
-        {/* Table */}
+        {/* View switch */}
         {!loading && (
+          <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+            {[["shifts","All Shifts"],["staff","By Staff"]].map(([k,l])=>(
+              <button key={k} onClick={()=>setView(k)}
+                style={{ padding:"8px 18px", borderRadius:8, fontSize:13, fontWeight:700,
+                  cursor:"pointer", border:`1.5px solid ${view===k?NAVY:BORD}`,
+                  background:view===k?NAVY:WHITE, color:view===k?WHITE:NAVY }}>
+                {l}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* All Shifts table */}
+        {!loading && view==="shifts" && (
+          <div style={{ background:WHITE, borderRadius:12, border:`1.5px solid ${BORD}`,
+            overflowX:"auto" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, minWidth:820 }}>
+              <thead>
+                <tr style={{ background:NAVY, color:WHITE, textAlign:"left" }}>
+                  {["Date","Staff Name","Type","Time","Break","Client","Unit","Hours"].map(h=>(
+                    <th key={h} style={{ padding:"10px 12px", fontSize:11, fontWeight:700,
+                      textTransform:"uppercase", letterSpacing:".07em",
+                      textAlign:h==="Hours"?"right":"left" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {allShifts.length === 0 && (
+                  <tr><td colSpan={8} style={{ textAlign:"center", padding:"40px", color:GRAY, fontSize:13 }}>
+                    No shifts match your filters.
+                  </td></tr>
+                )}
+                {allShifts.map((sh,i)=>(
+                  <tr key={i} style={{ borderTop:`1px solid ${BORD}`,
+                    background: sh.type==="Sleep-in" ? "#f6f4ff" : (i%2===0?WHITE:"#fafcfe") }}>
+                    <td style={{ padding:"9px 12px", color:NAVY, fontWeight:700, whiteSpace:"nowrap" }}>
+                      {sh.date ? niceDate(sh.date) : sh.day}
+                    </td>
+                    <td style={{ padding:"9px 12px", color:NAVY, fontWeight:700 }}>{sh.staff_name}</td>
+                    <td style={{ padding:"9px 12px", color:sh.type==="Sleep-in"?"#6c4fc4":GRAY }}>{sh.type}</td>
+                    <td style={{ padding:"9px 12px", whiteSpace:"nowrap" }}>{sh.start||"—"}–{sh.end||"—"}</td>
+                    <td style={{ padding:"9px 12px", color:GRAY }}>{sh.brk?`${sh.brk} min`:"None"}</td>
+                    <td style={{ padding:"9px 12px" }}>
+                      {sh.client ? <Badge text={sh.client} color={clientColor(sh.client)}/> : "—"}
+                    </td>
+                    <td style={{ padding:"9px 12px", color:NAVY }}>{sh.unit||"—"}</td>
+                    <td style={{ padding:"9px 12px", textAlign:"right", fontWeight:800, color:GREEN }}>
+                      {sh.hours||"—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              {allShifts.length > 0 && (
+                <tfoot>
+                  <tr style={{ background:PALE, borderTop:`2px solid ${NAVY}` }}>
+                    <td colSpan={7} style={{ padding:"11px 12px", fontWeight:800, color:NAVY }}>
+                      {allShifts.length} shift{allShifts.length===1?"":"s"}
+                      {filterClient ? ` at ${filterClient}` : ""} · Total hours
+                    </td>
+                    <td style={{ padding:"11px 12px", textAlign:"right", fontWeight:800, color:GREEN, fontSize:14 }}>
+                      {shiftHoursTotal.toFixed(2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
+
+        {/* By Staff table */}
+        {!loading && view==="staff" && (
           <div style={{ background:WHITE, borderRadius:12, border:`1.5px solid ${BORD}`,
             overflow:"hidden" }}>
 
@@ -546,6 +667,7 @@ function AdminDashboard({ onExit }) {
                                 display:"grid",
                                 gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",
                                 gap:6 }}>
+                                {sh.date && <div><span style={{color:GRAY}}>Date:</span> <b>{new Date(sh.date).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}</b></div>}
                                 <div><span style={{color:GRAY}}>Shift:</span> <b>{sh.start||"—"}–{sh.end||"—"}</b></div>
                                 <div><span style={{color:GRAY}}>Break:</span> {sh.brk?`${sh.brk} min`:"None"}</div>
                                 <div><span style={{color:GRAY}}>Client:</span> <b>{sh.client||"—"}</b></div>
