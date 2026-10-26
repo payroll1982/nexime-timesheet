@@ -11,11 +11,71 @@ const WHITE = "#ffffff";
 const RED   = "#e74c3c";
 
 const ADMIN_PIN = "nexime2024";
+const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 
 // Known clients — always shown in dropdown
 const KNOWN_CLIENTS = ["Turner Home", "Autism Initiatives", "AFG", "Gloucester Road"];
 
 const fmt = v => isNaN(v)||!v ? "—" : Number(v).toFixed(2);
+
+// ── Hour calculation (mirrors App.jsx) ────────────────
+const toMins = t => {
+  if (!t) return null;
+  const [h, m] = String(t).split(":").map(Number);
+  return isNaN(h) ? null : h * 60 + (m || 0);
+};
+const calcH = (s, e, brk) => {
+  const sm = toMins(s), em = toMins(e);
+  if (sm == null || em == null) return 0;
+  let diff = em - sm;
+  if (diff <= 0) diff += 24 * 60;
+  diff -= (parseFloat(brk) || 0);
+  return diff > 0 ? diff / 60 : 0;
+};
+
+// ── Transform a drafts row into admin-display format ──
+const transformDraft = (draft) => {
+  const d = draft.data || {};
+  const info = d.info || {};
+  const rows = d.rows || {};
+
+  const days = DAYS.map(day => {
+    const row = rows[day];
+    if (!row) return null;
+    const shifts = (row.shifts || []).map(sh => {
+      const h = calcH(sh.start, sh.end, sh.brk);
+      return h > 0 ? { ...sh, hours: h.toFixed(2) } : null;
+    }).filter(Boolean);
+    const slH = calcH(row.sl?.start, row.sl?.end, row.sl?.brk);
+    const sleepIn = slH > 0 ? { ...(row.sl || {}), hours: slH.toFixed(2) } : null;
+    if (!shifts.length && !sleepIn) return null;
+    return { day, shifts, sleepIn };
+  }).filter(Boolean);
+
+  let totalHours = 0;
+  days.forEach(dy => {
+    dy.shifts.forEach(sh => { totalHours += parseFloat(sh.hours || 0); });
+    if (dy.sleepIn) totalHours += parseFloat(dy.sleepIn.hours || 0);
+  });
+
+  const weekRaw = info.week || "";
+  const weekEnding = weekRaw
+    ? new Date(weekRaw).toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" })
+    : "—";
+
+  return {
+    id:          draft.id,
+    staff_id:    draft.staff_id,
+    staff_name:  info.name || "",
+    week_ending: weekEnding,
+    week_raw:    weekRaw,
+    total_hours: totalHours > 0 ? totalHours.toFixed(2) : "—",
+    reference:   "—",
+    created_at:  draft.updated_at,
+    days,
+    _source:     "draft",
+  };
+};
 
 function Badge({ text, color }) {
   return (
@@ -28,9 +88,9 @@ function Badge({ text, color }) {
 }
 
 function clientColor(c) {
-  if (c === "Turner Home")       return BLUE;
+  if (c === "Turner Home")        return BLUE;
   if (c === "Autism Initiatives") return "#8e44ad";
-  if (c === "AFG")               return GREEN;
+  if (c === "AFG")                return GREEN;
   return GRAY;
 }
 
@@ -105,7 +165,6 @@ function AdminDashboard({ onExit }) {
   const [records,      setRecords]      = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState("");
-  const [rlsWarning,   setRlsWarning]   = useState(false);
   const [search,       setSearch]       = useState("");
   const [searchInput,  setSearchInput]  = useState("");
   const [filterClient, setFilterClient] = useState("");
@@ -117,22 +176,36 @@ function AdminDashboard({ onExit }) {
   const load = async () => {
     setLoading(true);
     setError("");
-    setRlsWarning(false);
 
-    const { data, error: err } = await supabase
-      .from("timesheets")
-      .select("*")
-      .order("created_at", { ascending: false });
+    // Load from both tables in parallel
+    const [draftsRes, tsRes] = await Promise.all([
+      supabase.from("drafts").select("*").order("updated_at", { ascending: false }),
+      supabase.from("timesheets").select("*").order("created_at", { ascending: false }),
+    ]);
 
-    if (err) {
-      setError(err.message);
-    } else if (!data || data.length === 0) {
-      // Could be RLS blocking reads — set warning
-      setRlsWarning(true);
-      setRecords([]);
-    } else {
-      setRecords(data);
+    if (draftsRes.error && tsRes.error) {
+      setError(draftsRes.error.message);
+      setLoading(false);
+      return;
     }
+
+    // Transform drafts into display format, skip blank entries
+    const fromDrafts = (draftsRes.data || [])
+      .map(transformDraft)
+      .filter(r => r.staff_name && r.staff_name.trim() !== "");
+
+    // Timesheets already in the right format
+    const fromTimesheets = tsRes.data || [];
+
+    // De-duplicate: if same staff + week exists in both, prefer the timesheets record
+    const tsKeys = new Set(fromTimesheets.map(r => `${r.staff_name}|${r.week_ending}`));
+    const dedupedDrafts = fromDrafts.filter(r => !tsKeys.has(`${r.staff_name}|${r.week_ending}`));
+
+    const combined = [...fromTimesheets, ...dedupedDrafts].sort((a, b) =>
+      new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    );
+
+    setRecords(combined);
     setLoading(false);
   };
 
@@ -151,7 +224,9 @@ function AdminDashboard({ onExit }) {
   const filtered = records.filter(r => {
     const nameMatch = !search ||
       (r.staff_name||"").toLowerCase().includes(search.toLowerCase());
-    const weekMatch = !filterWeek || (r.week_ending||"").includes(filterWeek);
+    const weekMatch = !filterWeek ||
+      (r.week_raw||"").includes(filterWeek) ||
+      (r.week_ending||"").toLowerCase().includes(filterWeek.toLowerCase());
     const clientMatch = !filterClient || (r.days||[]).some(d =>
       (d.shifts||[]).some(s=>s.client===filterClient) ||
       d.sleepIn?.client===filterClient
@@ -165,8 +240,6 @@ function AdminDashboard({ onExit }) {
     setSearch(""); setSearchInput("");
     setFilterClient(""); setFilterWeek("");
   };
-
-  const totalHrs = r => r.total_hours || "—";
 
   const downloadPDF = async (rec) => {
     try {
@@ -200,14 +273,14 @@ function AdminDashboard({ onExit }) {
   };
 
   const exportCSV = () => {
-    const headers = ["Reference","Staff Name","Week Ending","Total Hours","Submitted At","Clients","Days Worked"];
+    const headers = ["Staff Name","Week Ending","Total Hours","Saved At","Clients","Days Worked"];
     const rows = filtered.map(r => {
       const clients = [...new Set(
         (r.days||[]).flatMap(d=>[...(d.shifts||[]).map(s=>s.client),d.sleepIn?.client].filter(Boolean))
       )].join("; ");
       const days = (r.days||[]).map(d=>d.day).join(", ");
       return [
-        r.reference||"", r.staff_name||"", r.week_ending||"",
+        r.staff_name||"", r.week_ending||"",
         r.total_hours||"",
         r.created_at ? new Date(r.created_at).toLocaleString("en-GB") : "",
         clients, days,
@@ -268,7 +341,7 @@ function AdminDashboard({ onExit }) {
           gap:12, marginBottom:20 }}>
           {[
             { label:"Total Submissions", value:records.length, icon:"📋" },
-            { label:"Unique Staff",      value:new Set(records.map(r=>r.staff_id)).size, icon:"👥" },
+            { label:"Unique Staff",      value:new Set(records.map(r=>r.staff_name)).size, icon:"👥" },
             { label:"This Month",        value:records.filter(r=>
                 r.created_at &&
                 new Date(r.created_at).getMonth()===new Date().getMonth() &&
@@ -355,22 +428,6 @@ function AdminDashboard({ onExit }) {
           </div>
         )}
 
-        {/* RLS Warning */}
-        {rlsWarning && !loading && (
-          <div style={{ background:"#fffbea", border:`1.5px solid #f0c040`,
-            borderRadius:10, padding:"16px", fontSize:13, marginBottom:16, color:"#7a5800" }}>
-            <b>⚠️ No timesheets found.</b> This is usually because the database has Row Level Security (RLS) enabled.
-            To fix this, go to your <b>Supabase dashboard → Table Editor → timesheets → Policies</b> and add a policy:
-            <br/><br/>
-            <code style={{ background:"#fff8dc", padding:"4px 8px", borderRadius:6, fontSize:12,
-              display:"block", marginTop:4 }}>
-              Policy name: Admin read all · Target roles: anon · Using expression: true
-            </code>
-            <br/>
-            Or contact your developer to enable public read access on the timesheets table.
-          </div>
-        )}
-
         {/* Loading */}
         {loading && (
           <div style={{ textAlign:"center", padding:"40px", color:GRAY, fontSize:14 }}>
@@ -384,20 +441,19 @@ function AdminDashboard({ onExit }) {
             overflow:"hidden" }}>
 
             <div style={{ display:"grid",
-              gridTemplateColumns:"1fr 1.4fr 1fr 0.7fr 1.4fr 0.9fr 1fr",
+              gridTemplateColumns:"1.6fr 1fr 0.7fr 1.4fr 0.9fr 1fr",
               background:NAVY, color:WHITE, padding:"10px 16px",
               fontSize:11, fontWeight:700, textTransform:"uppercase",
               letterSpacing:".07em", gap:8 }}>
-              <div>Reference</div>
               <div>Staff Name</div>
               <div>Week Ending</div>
               <div>Hours</div>
               <div className="hide-mobile">Clients</div>
-              <div className="hide-mobile">Submitted</div>
+              <div className="hide-mobile">Saved</div>
               <div style={{ textAlign:"right" }}>Actions</div>
             </div>
 
-            {filtered.length === 0 && !rlsWarning && (
+            {filtered.length === 0 && !loading && (
               <div style={{ textAlign:"center", padding:"40px", color:GRAY, fontSize:13 }}>
                 No timesheets match your filters.
               </div>
@@ -410,7 +466,7 @@ function AdminDashboard({ onExit }) {
                   d.sleepIn?.client
                 ].filter(Boolean))
               )];
-              const submittedDate = rec.created_at
+              const savedDate = rec.created_at
                 ? new Date(rec.created_at).toLocaleDateString("en-GB",
                     {day:"2-digit",month:"short",year:"numeric"})
                 : "—";
@@ -420,16 +476,13 @@ function AdminDashboard({ onExit }) {
                 <div key={rec.id||i}>
                   <div className="row-card"
                     style={{ display:"grid",
-                      gridTemplateColumns:"1fr 1.4fr 1fr 0.7fr 1.4fr 0.9fr 1fr",
+                      gridTemplateColumns:"1.6fr 1fr 0.7fr 1.4fr 0.9fr 1fr",
                       padding:"12px 16px", gap:8, alignItems:"center",
                       borderTop: i===0?"none":`1px solid ${BORD}`,
                       background: i%2===0?WHITE:"#fafcfe",
                       cursor:"pointer", transition:"background .15s" }}
                     onClick={()=>setExpanded(isOpen?null:rec.id)}>
 
-                    <div style={{ fontSize:12, fontWeight:700, color:BLUE, fontFamily:"monospace" }}>
-                      {rec.reference||"—"}
-                    </div>
                     <div style={{ fontSize:13, fontWeight:700, color:NAVY }}>
                       {rec.staff_name||"—"}
                     </div>
@@ -437,13 +490,13 @@ function AdminDashboard({ onExit }) {
                       {rec.week_ending||"—"}
                     </div>
                     <div style={{ fontSize:13, fontWeight:800, color:GREEN }}>
-                      {totalHrs(rec)}
+                      {rec.total_hours||"—"}
                     </div>
                     <div className="hide-mobile" style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
                       {clients.map(c=><Badge key={c} text={c} color={clientColor(c)}/>)}
                     </div>
                     <div className="hide-mobile" style={{ fontSize:11, color:GRAY }}>
-                      {submittedDate}
+                      {savedDate}
                     </div>
                     <div style={{ display:"flex", gap:6, justifyContent:"flex-end" }}
                       onClick={e=>e.stopPropagation()}>
