@@ -305,6 +305,28 @@ export default function App({ user, onLogout }) {
           };
         }).filter(Boolean),
       };
+      // Save to Supabase database FIRST (regardless of email outcome)
+      try {
+        const { error: dbErr } = await supabase.from("timesheets").insert({
+          staff_id:    user?.id || null,
+          staff_name:  info.name,
+          week_ending: weekLabel(),
+          total_hours: fmt(grand),
+          reference:   refNo,
+          status:      "submitted",
+          days: DAYS.map(day => {
+            const r = rows[day];
+            const shifts = (r.shifts||[]).map(sh=>{
+              const h=calcHrs(sh.start,sh.end,sh.brk);
+              return h?{...sh,hours:h}:null;
+            }).filter(Boolean);
+            const slH = calcHrs(r.sl?.start,r.sl?.end,r.sl?.brk);
+            return { day, shifts, sleepIn: slH?{...r.sl,hours:slH}:null };
+          }).filter(d=>d.shifts?.length||d.sleepIn)
+        });
+        if (dbErr) console.error("Supabase save error:", dbErr);
+      } catch(e){ console.error("Supabase save error:",e); }
+
       const res = await fetch("/api/send-timesheet", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -313,26 +335,6 @@ export default function App({ user, onLogout }) {
       if (res.ok) {
         setSendStatus("sent");
         try { localStorage.removeItem("nexime_draft"); } catch(e){}
-        // Save to Supabase database
-        try {
-          await supabase.from("timesheets").insert({
-            staff_id:   user?.id || null,
-            staff_name: info.name,
-            week_ending: weekLabel(),
-            total_hours: fmt(grand),
-            reference:  refNo,
-            status:     "submitted",
-            days: DAYS.map(day => {
-              const r = rows[day];
-              const shifts = (r.shifts||[]).map(sh=>{
-                const h=calcHrs(sh.start,sh.end,sh.brk);
-                return h?{...sh,hours:h}:null;
-              }).filter(Boolean);
-              const slH = calcHrs(r.sl?.start,r.sl?.end,r.sl?.brk);
-              return { day, shifts, sleepIn: slH?{...r.sl,hours:slH}:null };
-            }).filter(d=>d.shifts?.length||d.sleepIn)
-          });
-        } catch(e){ console.error("Supabase save error:",e); }
       }
       else        { setSendStatus("error"); }
     } catch(e) {
