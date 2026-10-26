@@ -10,10 +10,11 @@ const GRAY  = "#7a8a9a";
 const WHITE = "#ffffff";
 const RED   = "#e74c3c";
 
-// ── Admin PIN (change this to whatever you want) ─────────
 const ADMIN_PIN = "nexime2024";
 
-// ── Tiny helpers ─────────────────────────────────────────
+// Known clients — always shown in dropdown
+const KNOWN_CLIENTS = ["Turner Home", "Autism Initiatives", "AFG", "Gloucester Road"];
+
 const fmt = v => isNaN(v)||!v ? "—" : Number(v).toFixed(2);
 
 function Badge({ text, color }) {
@@ -26,10 +27,17 @@ function Badge({ text, color }) {
   );
 }
 
-// ── PIN Login screen ──────────────────────────────────────
+function clientColor(c) {
+  if (c === "Turner Home")       return BLUE;
+  if (c === "Autism Initiatives") return "#8e44ad";
+  if (c === "AFG")               return GREEN;
+  return GRAY;
+}
+
+// ── PIN Login ─────────────────────────────────────────────
 function PinLogin({ onUnlock }) {
-  const [pin, setPin]   = useState("");
-  const [err, setErr]   = useState("");
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
 
   const attempt = () => {
     if (pin === ADMIN_PIN) { onUnlock(); }
@@ -57,7 +65,6 @@ function PinLogin({ onUnlock }) {
 
       <div style={{ width:"100%", maxWidth:380, background:WHITE, borderRadius:16,
         padding:"28px 24px", boxShadow:"0 20px 60px #00000033" }}>
-
         <div style={{ textAlign:"center", marginBottom:24 }}>
           <div style={{ fontSize:28, marginBottom:8 }}>🔒</div>
           <div style={{ fontSize:20, fontWeight:800, color:NAVY }}>Admin Portal</div>
@@ -95,44 +102,55 @@ function PinLogin({ onUnlock }) {
 
 // ── Main Admin Dashboard ──────────────────────────────────
 function AdminDashboard({ onExit }) {
-  const [records,    setRecords]    = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState("");
-  const [search,     setSearch]     = useState("");
+  const [records,      setRecords]      = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState("");
+  const [rlsWarning,   setRlsWarning]   = useState(false);
+  const [search,       setSearch]       = useState("");
+  const [searchInput,  setSearchInput]  = useState("");
   const [filterClient, setFilterClient] = useState("");
   const [filterWeek,   setFilterWeek]   = useState("");
-  const [expanded,   setExpanded]   = useState(null);
+  const [expanded,     setExpanded]     = useState(null);
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   const load = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    setError("");
+    setRlsWarning(false);
+
+    const { data, error: err } = await supabase
       .from("timesheets")
       .select("*")
       .order("created_at", { ascending: false });
-    if (error) setError(error.message);
-    else setRecords(data || []);
+
+    if (err) {
+      setError(err.message);
+    } else if (!data || data.length === 0) {
+      // Could be RLS blocking reads — set warning
+      setRlsWarning(true);
+      setRecords([]);
+    } else {
+      setRecords(data);
+    }
     setLoading(false);
   };
 
-  // ── Collect all clients that appear in any timesheet ──
-  const allClients = [...new Set(
+  // ── Client list: always include known clients + any extras found in data ──
+  const extraClients = [...new Set(
     records.flatMap(r =>
       (r.days || []).flatMap(d => [
         ...(d.shifts||[]).map(s=>s.client),
         d.sleepIn?.client
       ].filter(Boolean))
     )
-  )].sort();
+  )].filter(c => !KNOWN_CLIENTS.includes(c)).sort();
+  const allClients = [...KNOWN_CLIENTS, ...extraClients];
 
   // ── Filter ────────────────────────────────────────────
   const filtered = records.filter(r => {
     const nameMatch = !search ||
-      (r.staff_name||"").toLowerCase().includes(search.toLowerCase()) ||
-      (r.reference||"").toLowerCase().includes(search.toLowerCase());
+      (r.staff_name||"").toLowerCase().includes(search.toLowerCase());
     const weekMatch = !filterWeek || (r.week_ending||"").includes(filterWeek);
     const clientMatch = !filterClient || (r.days||[]).some(d =>
       (d.shifts||[]).some(s=>s.client===filterClient) ||
@@ -141,20 +159,25 @@ function AdminDashboard({ onExit }) {
     return nameMatch && weekMatch && clientMatch;
   });
 
-  // ── Total hours across a record ───────────────────────
+  const doSearch = () => setSearch(searchInput);
+
+  const clearAll = () => {
+    setSearch(""); setSearchInput("");
+    setFilterClient(""); setFilterWeek("");
+  };
+
   const totalHrs = r => r.total_hours || "—";
 
-  // ── Download PDF for a record ─────────────────────────
   const downloadPDF = async (rec) => {
     try {
       const res = await fetch("/api/download-timesheet", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name:       rec.staff_name,
-          week:       rec.week_ending,
-          reference:  rec.reference,
-          rows:       buildRows(rec.days),
+          name:      rec.staff_name,
+          week:      rec.week_ending,
+          reference: rec.reference,
+          rows:      buildRows(rec.days),
         }),
       });
       if (!res.ok) throw new Error("Download failed");
@@ -170,16 +193,12 @@ function AdminDashboard({ onExit }) {
     }
   };
 
-  // ── Build rows object for PDF API ─────────────────────
   const buildRows = (days) => {
     const obj = {};
-    (days||[]).forEach(d => {
-      obj[d.day] = { shifts: d.shifts||[], sl: d.sleepIn||{} };
-    });
+    (days||[]).forEach(d => { obj[d.day] = { shifts:d.shifts||[], sl:d.sleepIn||{} }; });
     return obj;
   };
 
-  // ── Export filtered results as CSV ────────────────────
   const exportCSV = () => {
     const headers = ["Reference","Staff Name","Week Ending","Total Hours","Submitted At","Clients","Days Worked"];
     const rows = filtered.map(r => {
@@ -188,23 +207,18 @@ function AdminDashboard({ onExit }) {
       )].join("; ");
       const days = (r.days||[]).map(d=>d.day).join(", ");
       return [
-        r.reference||"",
-        r.staff_name||"",
-        r.week_ending||"",
+        r.reference||"", r.staff_name||"", r.week_ending||"",
         r.total_hours||"",
         r.created_at ? new Date(r.created_at).toLocaleString("en-GB") : "",
-        clients,
-        days,
+        clients, days,
       ];
     });
-    const csv = [headers, ...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type:"text/csv" });
+    const csv = [headers,...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv],{type:"text/csv"});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
-    a.href     = url;
-    a.download = `Nexime-Timesheets-${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    a.href=url; a.download=`Nexime-Timesheets-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click(); URL.revokeObjectURL(url);
   };
 
   return (
@@ -212,11 +226,11 @@ function AdminDashboard({ onExit }) {
       fontFamily:"'Nunito','Segoe UI',sans-serif", overflowX:"hidden" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}
-        input,select{font-family:inherit}
+        input,select,button{font-family:inherit}
         .af{width:100%;padding:9px 12px;border:1.5px solid ${BORD};border-radius:8px;
            font-size:13px;color:${NAVY};outline:none;background:${WHITE}}
         .af:focus{border-color:${BLUE}}
-        .row-card:hover{background:#f8fdff!important}
+        .row-card:hover{background:#f0f8ff!important}
         @media(max-width:600px){.hide-mobile{display:none!important}}`}</style>
 
       {/* Header */}
@@ -225,21 +239,23 @@ function AdminDashboard({ onExit }) {
         flexWrap:"wrap", gap:10 }}>
         <div>
           <div style={{ fontWeight:800, fontSize:18, letterSpacing:.5 }}>
-            🗂 Nexime Admin Portal
+            Nexime Admin Portal
           </div>
           <div style={{ fontSize:11, opacity:.6, marginTop:2 }}>
             Timesheet Records · {records.length} total submissions
           </div>
         </div>
-        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+        <div style={{ display:"flex", gap:10 }}>
           <button onClick={load}
-            style={{ background:"rgba(255,255,255,.12)", color:WHITE, border:"1px solid rgba(255,255,255,.25)",
-              borderRadius:8, padding:"7px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+            style={{ background:"rgba(255,255,255,.12)", color:WHITE,
+              border:"1px solid rgba(255,255,255,.25)", borderRadius:8,
+              padding:"7px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}>
             ↻ Refresh
           </button>
           <button onClick={onExit}
-            style={{ background:"rgba(255,255,255,.12)", color:WHITE, border:"1px solid rgba(255,255,255,.25)",
-              borderRadius:8, padding:"7px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+            style={{ background:"rgba(255,255,255,.12)", color:WHITE,
+              border:"1px solid rgba(255,255,255,.25)", borderRadius:8,
+              padding:"7px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}>
             ← Exit
           </button>
         </div>
@@ -247,17 +263,18 @@ function AdminDashboard({ onExit }) {
 
       <div style={{ maxWidth:1100, margin:"0 auto", padding:"20px 16px" }}>
 
-        {/* Stats row */}
+        {/* Stats */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",
           gap:12, marginBottom:20 }}>
           {[
-            { label:"Total Submissions", value: records.length, icon:"📋" },
-            { label:"Unique Staff", value: new Set(records.map(r=>r.staff_id)).size, icon:"👥" },
-            { label:"This Month", value: records.filter(r=>
-                r.created_at && new Date(r.created_at).getMonth()===new Date().getMonth() &&
+            { label:"Total Submissions", value:records.length, icon:"📋" },
+            { label:"Unique Staff",      value:new Set(records.map(r=>r.staff_id)).size, icon:"👥" },
+            { label:"This Month",        value:records.filter(r=>
+                r.created_at &&
+                new Date(r.created_at).getMonth()===new Date().getMonth() &&
                 new Date(r.created_at).getFullYear()===new Date().getFullYear()
               ).length, icon:"📅" },
-            { label:"Filtered Results", value: filtered.length, icon:"🔍" },
+            { label:"Filtered Results",  value:filtered.length, icon:"🔍" },
           ].map(s=>(
             <div key={s.label} style={{ background:WHITE, borderRadius:12, padding:"14px 16px",
               border:`1.5px solid ${BORD}`, textAlign:"center" }}>
@@ -270,38 +287,61 @@ function AdminDashboard({ onExit }) {
 
         {/* Filters */}
         <div style={{ background:WHITE, borderRadius:12, padding:"16px",
-          border:`1.5px solid ${BORD}`, marginBottom:16,
-          display:"grid", gridTemplateColumns:"1fr 1fr 1fr auto", gap:10, alignItems:"end" }}>
-          <div>
-            <div style={{ fontSize:11, fontWeight:700, color:BLUE, marginBottom:4,
-              textTransform:"uppercase", letterSpacing:".07em" }}>Search Staff / Ref</div>
-            <input className="af" placeholder="Name or reference…"
-              value={search} onChange={e=>setSearch(e.target.value)}/>
-          </div>
-          <div>
-            <div style={{ fontSize:11, fontWeight:700, color:BLUE, marginBottom:4,
-              textTransform:"uppercase", letterSpacing:".07em" }}>Filter by Client</div>
-            <select className="af" value={filterClient} onChange={e=>setFilterClient(e.target.value)}>
-              <option value="">All clients</option>
-              {allClients.map(c=><option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          <div>
-            <div style={{ fontSize:11, fontWeight:700, color:BLUE, marginBottom:4,
-              textTransform:"uppercase", letterSpacing:".07em" }}>Week Ending</div>
-            <input className="af" placeholder="e.g. 2024-11-10"
-              value={filterWeek} onChange={e=>setFilterWeek(e.target.value)}/>
-          </div>
-          <div style={{ display:"flex", gap:8 }}>
-            <button onClick={()=>{setSearch("");setFilterClient("");setFilterWeek("");}}
-              style={{ padding:"9px 14px", background:"#f0f4f8", border:`1.5px solid ${BORD}`,
-                borderRadius:8, fontSize:12, fontWeight:700, color:GRAY, cursor:"pointer" }}>
+          border:`1.5px solid ${BORD}`, marginBottom:16 }}>
+          <div style={{ display:"grid",
+            gridTemplateColumns:"1fr 180px 160px auto auto auto",
+            gap:10, alignItems:"end" }}>
+
+            {/* Search Staff */}
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:BLUE, marginBottom:4,
+                textTransform:"uppercase", letterSpacing:".07em" }}>Search Staff</div>
+              <input className="af" placeholder="Enter staff name…"
+                value={searchInput}
+                onChange={e=>setSearchInput(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&doSearch()}/>
+            </div>
+
+            {/* Filter by Client */}
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:BLUE, marginBottom:4,
+                textTransform:"uppercase", letterSpacing:".07em" }}>Filter by Client</div>
+              <select className="af" value={filterClient}
+                onChange={e=>setFilterClient(e.target.value)}>
+                <option value="">All clients</option>
+                {allClients.map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+
+            {/* Week Ending */}
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, color:BLUE, marginBottom:4,
+                textTransform:"uppercase", letterSpacing:".07em" }}>Week Ending</div>
+              <input className="af" placeholder="e.g. 2024-11-10" type="date"
+                value={filterWeek} onChange={e=>setFilterWeek(e.target.value)}/>
+            </div>
+
+            {/* Search button */}
+            <button onClick={doSearch}
+              style={{ padding:"9px 20px", background:NAVY, border:"none",
+                borderRadius:8, fontSize:13, fontWeight:700, color:WHITE,
+                cursor:"pointer", whiteSpace:"nowrap" }}>
+              🔍 Search
+            </button>
+
+            {/* Clear */}
+            <button onClick={clearAll}
+              style={{ padding:"9px 14px", background:"#f0f4f8",
+                border:`1.5px solid ${BORD}`, borderRadius:8,
+                fontSize:12, fontWeight:700, color:GRAY, cursor:"pointer" }}>
               Clear
             </button>
+
+            {/* CSV */}
             <button onClick={exportCSV}
               style={{ padding:"9px 14px", background:GREEN, border:"none",
-                borderRadius:8, fontSize:12, fontWeight:700, color:WHITE, cursor:"pointer",
-                whiteSpace:"nowrap" }}>
+                borderRadius:8, fontSize:12, fontWeight:700, color:WHITE,
+                cursor:"pointer", whiteSpace:"nowrap" }}>
               ⬇ CSV
             </button>
           </div>
@@ -311,7 +351,23 @@ function AdminDashboard({ onExit }) {
         {error && (
           <div style={{ background:"#fff5f5", border:`1.5px solid #f5a0a0`,
             borderRadius:10, padding:"12px 16px", color:RED, fontSize:13, marginBottom:16 }}>
-            ⚠️ {error}
+            ⚠️ Error loading data: {error}
+          </div>
+        )}
+
+        {/* RLS Warning */}
+        {rlsWarning && !loading && (
+          <div style={{ background:"#fffbea", border:`1.5px solid #f0c040`,
+            borderRadius:10, padding:"16px", fontSize:13, marginBottom:16, color:"#7a5800" }}>
+            <b>⚠️ No timesheets found.</b> This is usually because the database has Row Level Security (RLS) enabled.
+            To fix this, go to your <b>Supabase dashboard → Table Editor → timesheets → Policies</b> and add a policy:
+            <br/><br/>
+            <code style={{ background:"#fff8dc", padding:"4px 8px", borderRadius:6, fontSize:12,
+              display:"block", marginTop:4 }}>
+              Policy name: Admin read all · Target roles: anon · Using expression: true
+            </code>
+            <br/>
+            Or contact your developer to enable public read access on the timesheets table.
           </div>
         )}
 
@@ -327,12 +383,11 @@ function AdminDashboard({ onExit }) {
           <div style={{ background:WHITE, borderRadius:12, border:`1.5px solid ${BORD}`,
             overflow:"hidden" }}>
 
-            {/* Table header */}
             <div style={{ display:"grid",
-              gridTemplateColumns:"1fr 1.2fr 1fr 0.7fr 1.2fr 0.8fr 1fr",
+              gridTemplateColumns:"1fr 1.4fr 1fr 0.7fr 1.4fr 0.9fr 1fr",
               background:NAVY, color:WHITE, padding:"10px 16px",
-              fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:".07em",
-              gap:8 }}>
+              fontSize:11, fontWeight:700, textTransform:"uppercase",
+              letterSpacing:".07em", gap:8 }}>
               <div>Reference</div>
               <div>Staff Name</div>
               <div>Week Ending</div>
@@ -342,7 +397,7 @@ function AdminDashboard({ onExit }) {
               <div style={{ textAlign:"right" }}>Actions</div>
             </div>
 
-            {filtered.length === 0 && (
+            {filtered.length === 0 && !rlsWarning && (
               <div style={{ textAlign:"center", padding:"40px", color:GRAY, fontSize:13 }}>
                 No timesheets match your filters.
               </div>
@@ -356,24 +411,23 @@ function AdminDashboard({ onExit }) {
                 ].filter(Boolean))
               )];
               const submittedDate = rec.created_at
-                ? new Date(rec.created_at).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})
+                ? new Date(rec.created_at).toLocaleDateString("en-GB",
+                    {day:"2-digit",month:"short",year:"numeric"})
                 : "—";
               const isOpen = expanded === rec.id;
 
               return (
                 <div key={rec.id||i}>
-                  {/* Row */}
                   <div className="row-card"
                     style={{ display:"grid",
-                      gridTemplateColumns:"1fr 1.2fr 1fr 0.7fr 1.2fr 0.8fr 1fr",
+                      gridTemplateColumns:"1fr 1.4fr 1fr 0.7fr 1.4fr 0.9fr 1fr",
                       padding:"12px 16px", gap:8, alignItems:"center",
                       borderTop: i===0?"none":`1px solid ${BORD}`,
                       background: i%2===0?WHITE:"#fafcfe",
                       cursor:"pointer", transition:"background .15s" }}
                     onClick={()=>setExpanded(isOpen?null:rec.id)}>
 
-                    <div style={{ fontSize:12, fontWeight:700, color:BLUE,
-                      fontFamily:"monospace" }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:BLUE, fontFamily:"monospace" }}>
                       {rec.reference||"—"}
                     </div>
                     <div style={{ fontSize:13, fontWeight:700, color:NAVY }}>
@@ -385,15 +439,12 @@ function AdminDashboard({ onExit }) {
                     <div style={{ fontSize:13, fontWeight:800, color:GREEN }}>
                       {totalHrs(rec)}
                     </div>
-                    <div className="hide-mobile"
-                      style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
-                      {clients.map(c=>(
-                        <Badge key={c} text={c}
-                          color={c==="Turner Home"?BLUE:c==="Autism Initiatives"?"#8e44ad":c==="AFG"?GREEN:GRAY}/>
-                      ))}
+                    <div className="hide-mobile" style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+                      {clients.map(c=><Badge key={c} text={c} color={clientColor(c)}/>)}
                     </div>
-                    <div className="hide-mobile"
-                      style={{ fontSize:11, color:GRAY }}>{submittedDate}</div>
+                    <div className="hide-mobile" style={{ fontSize:11, color:GRAY }}>
+                      {submittedDate}
+                    </div>
                     <div style={{ display:"flex", gap:6, justifyContent:"flex-end" }}
                       onClick={e=>e.stopPropagation()}>
                       <button onClick={()=>setExpanded(isOpen?null:rec.id)}
@@ -411,50 +462,68 @@ function AdminDashboard({ onExit }) {
                     </div>
                   </div>
 
-                  {/* Expanded detail */}
+                  {/* Expanded shifts */}
                   {isOpen && (
                     <div style={{ background:"#f8fcff", borderTop:`1.5px solid ${BORD}`,
                       padding:"16px 20px" }}>
                       <div style={{ fontSize:12, fontWeight:800, color:NAVY,
                         marginBottom:12, textTransform:"uppercase", letterSpacing:".06em" }}>
-                        Timesheet Detail — {rec.staff_name} · Week ending {rec.week_ending}
+                        All Shifts — {rec.staff_name} · Week ending {rec.week_ending}
                       </div>
-                      {(rec.days||[]).map(d => (
-                        <div key={d.day} style={{ marginBottom:12 }}>
-                          <div style={{ fontSize:11, fontWeight:700, color:BLUE,
-                            textTransform:"uppercase", marginBottom:6 }}>{d.day}</div>
-                          {(d.shifts||[]).map((sh,si)=>(
-                            <div key={si} style={{ background:WHITE, border:`1px solid ${BORD}`,
-                              borderRadius:8, padding:"8px 12px", marginBottom:6, fontSize:12,
-                              display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",
-                              gap:6 }}>
-                              <div><span style={{color:GRAY}}>Shift:</span> <b>{sh.start||"—"}–{sh.end||"—"}</b></div>
-                              <div><span style={{color:GRAY}}>Break:</span> {sh.brk?`${sh.brk}min`:"None"}</div>
-                              <div><span style={{color:GRAY}}>Client:</span> <b>{sh.client||"—"}</b></div>
-                              <div><span style={{color:GRAY}}>Unit:</span> {sh.unit||"—"}</div>
-                              <div><span style={{color:GRAY}}>Hours:</span> <b style={{color:GREEN}}>{sh.hours||"—"}</b></div>
-                              {sh.sig && <div><span style={{color:GRAY}}>Signed:</span> <span style={{color:GREEN}}>✅ Yes</span></div>}
+
+                      {(rec.days||[]).length === 0 && (
+                        <div style={{ color:GRAY, fontSize:12 }}>No shift data recorded.</div>
+                      )}
+
+                      {(rec.days||[]).map(d => {
+                        const hasShifts = (d.shifts||[]).length > 0;
+                        const hasSleep  = d.sleepIn?.start;
+                        if (!hasShifts && !hasSleep) return null;
+                        return (
+                          <div key={d.day} style={{ marginBottom:14 }}>
+                            <div style={{ fontSize:12, fontWeight:800, color:BLUE,
+                              textTransform:"uppercase", marginBottom:6,
+                              borderBottom:`1px solid ${BORD}`, paddingBottom:4 }}>
+                              {d.day}
                             </div>
-                          ))}
-                          {d.sleepIn?.start && (
-                            <div style={{ background:"#f2f9ff", border:`1px solid ${BORD}`,
-                              borderRadius:8, padding:"8px 12px", marginBottom:6, fontSize:12,
-                              display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",
-                              gap:6 }}>
-                              <div><span style={{color:GRAY}}>Sleep-in:</span> <b>{d.sleepIn.start}–{d.sleepIn.end}</b></div>
-                              <div><span style={{color:GRAY}}>Client:</span> <b>{d.sleepIn.client||"—"}</b></div>
-                              <div><span style={{color:GRAY}}>Unit:</span> {d.sleepIn.unit||"—"}</div>
-                              <div><span style={{color:GRAY}}>Hours:</span> <b style={{color:GREEN}}>{d.sleepIn.hours||"—"}</b></div>
-                              {d.sleepIn.sig && <div><span style={{color:GRAY}}>Signed:</span> <span style={{color:GREEN}}>✅ Yes</span></div>}
-                            </div>
-                          )}
-                        </div>
-                      ))}
+
+                            {(d.shifts||[]).map((sh,si)=>(
+                              <div key={si} style={{ background:WHITE, border:`1px solid ${BORD}`,
+                                borderRadius:8, padding:"10px 14px", marginBottom:6, fontSize:12,
+                                display:"grid",
+                                gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",
+                                gap:6 }}>
+                                <div><span style={{color:GRAY}}>Shift:</span> <b>{sh.start||"—"}–{sh.end||"—"}</b></div>
+                                <div><span style={{color:GRAY}}>Break:</span> {sh.brk?`${sh.brk} min`:"None"}</div>
+                                <div><span style={{color:GRAY}}>Client:</span> <b>{sh.client||"—"}</b></div>
+                                <div><span style={{color:GRAY}}>Unit:</span> {sh.unit||"—"}</div>
+                                <div><span style={{color:GRAY}}>Hours:</span> <b style={{color:GREEN}}>{sh.hours||"—"}</b></div>
+                                {sh.sig && <div><span style={{color:GRAY}}>Signed:</span> <span style={{color:GREEN}}>✅ Yes</span></div>}
+                              </div>
+                            ))}
+
+                            {hasSleep && (
+                              <div style={{ background:"#f2f0ff", border:`1px solid #c5b8f0`,
+                                borderRadius:8, padding:"10px 14px", marginBottom:6, fontSize:12,
+                                display:"grid",
+                                gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",
+                                gap:6 }}>
+                                <div><span style={{color:GRAY}}>Sleep-in:</span> <b>{d.sleepIn.start}–{d.sleepIn.end}</b></div>
+                                <div><span style={{color:GRAY}}>Client:</span> <b>{d.sleepIn.client||"—"}</b></div>
+                                <div><span style={{color:GRAY}}>Unit:</span> {d.sleepIn.unit||"—"}</div>
+                                <div><span style={{color:GRAY}}>Hours:</span> <b style={{color:GREEN}}>{d.sleepIn.hours||"—"}</b></div>
+                                {d.sleepIn.sig && <div><span style={{color:GRAY}}>Signed:</span> <span style={{color:GREEN}}>✅ Yes</span></div>}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
                       <div style={{ display:"flex", justifyContent:"flex-end", marginTop:8 }}>
                         <button onClick={()=>downloadPDF(rec)}
                           style={{ padding:"8px 18px", background:BLUE, border:"none",
                             borderRadius:8, fontSize:13, fontWeight:700, color:WHITE,
-                            cursor:"pointer", fontFamily:"inherit" }}>
+                            cursor:"pointer" }}>
                           ⬇ Download PDF
                         </button>
                       </div>
@@ -474,10 +543,9 @@ function AdminDashboard({ onExit }) {
   );
 }
 
-// ── Export: Admin (handles PIN gate) ─────────────────────
+// ── Export ────────────────────────────────────────────────
 export default function Admin() {
   const [unlocked, setUnlocked] = useState(false);
-
   if (!unlocked) return <PinLogin onUnlock={()=>setUnlocked(true)}/>;
   return <AdminDashboard onExit={()=>setUnlocked(false)}/>;
 }
