@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import App from './App.jsx'
 import Demo from './Demo.jsx'
 import Login from './Login.jsx'
+import Admin from './Admin.jsx'
 import { supabase } from './supabase.js'
 
 const BLUE = "#0e8fd4", GREEN = "#3db84a", NAVY = "#1b3a5c", WHITE = "#ffffff";
@@ -151,6 +152,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <Routes>
         <Route path="/" element={<Root />} />
         <Route path="/demo" element={<Demo />} />
+        <Route path="/admin" element={<Admin />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>
